@@ -1,7 +1,11 @@
-import { useEffect, type JSX, type PointerEvent } from 'react'
+import { useEffect, useRef, useState, type JSX, type PointerEvent } from 'react'
 import { quantize } from '../../shared/coords'
+import { CLICK_MS } from '../../shared/protocol'
+import { CursorMark } from './CursorMark'
 import { GhostField } from './GhostField'
 import { useGhostLink } from './link'
+
+const SEAT_COLOR = '#6cb6d9'
 
 function pointIn(event: PointerEvent<HTMLDivElement>): { x: number; y: number } | null {
   const rect = event.currentTarget.getBoundingClientRect()
@@ -19,6 +23,19 @@ export function Pad(): JSX.Element {
   const ready = code.trim().length >= 4
   const link = useGhostLink(ready, settings)
   const { publishMove, publishPing } = link
+  const [local, setLocal] = useState<{ x: number; y: number } | null>(null)
+  const [clickKey, setClickKey] = useState<string | null>(null)
+  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const armClick = (): string => {
+    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`
+    setClickKey(id)
+    if (clickTimer.current) clearTimeout(clickTimer.current)
+    clickTimer.current = setTimeout(() => {
+      setClickKey((current) => (current === id ? null : current))
+    }, CLICK_MS)
+    return id
+  }
 
   useEffect(() => {
     if (!ready) return
@@ -51,26 +68,43 @@ export function Pad(): JSX.Element {
       </header>
       <div
         data-testid="pad-surface"
-        title="Move here. A click changes their pointer color."
+        title="Move here. A click blinks their pointer."
         className="relative min-h-0 flex-1 overflow-hidden rounded-lg border border-border bg-[#100e0c] select-none"
         onPointerMove={(event) => {
           const point = pointIn(event)
           if (!point) return
+          setLocal(point)
           publishMove({ name: 'Test seat', ...point })
         }}
-        onPointerLeave={() => publishMove({ name: 'Test seat', x: null, y: null })}
+        onPointerLeave={() => {
+          setLocal(null)
+          publishMove({ name: 'Test seat', x: null, y: null })
+        }}
         onPointerDown={(event) => {
           if (event.button !== 0) return
           const point = pointIn(event)
           if (!point) return
+          setLocal(point)
           publishPing({
             name: 'Test seat',
             ...point,
-            id: `${Date.now()}-${Math.random().toString(16).slice(2)}`
+            id: armClick()
           })
         }}
       >
         <GhostField ghosts={link.ghosts} />
+        {local && (
+          <div
+            className="ghost-move"
+            data-testid="pad-cursor"
+            data-x={local.x}
+            data-y={local.y}
+            data-flash={clickKey ? '1' : '0'}
+            style={{ left: `${local.x * 100}%`, top: `${local.y * 100}%` }}
+          >
+            <CursorMark name="Test seat" color={SEAT_COLOR} clickKey={clickKey} />
+          </div>
+        )}
       </div>
     </main>
   )

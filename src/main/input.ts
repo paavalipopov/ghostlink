@@ -25,7 +25,7 @@ function attachHook(onClick: () => void): { hook: MouseHook | null; status: Hook
       status: {
         live: true,
         detail:
-          'A click inside the play area changes their pointer color. The click still belongs to your game.'
+          'A click inside the play area blinks their pointer. The click still belongs to your game.'
       }
     }
   } catch (error) {

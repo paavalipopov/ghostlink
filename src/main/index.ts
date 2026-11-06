@@ -1,11 +1,30 @@
-import { app, BrowserWindow, globalShortcut, ipcMain, screen, shell } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  desktopCapturer,
+  globalShortcut,
+  ipcMain,
+  screen,
+  shell,
+  type Display
+} from 'electron'
 import { join } from 'path'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { CH, type PadLaunch } from '../shared/bridge'
-import { applyCorner, isInside, normalize, project, quantize, type Bounds } from '../shared/coords'
+import {
+  applyCorner,
+  isInside,
+  normalize,
+  project,
+  quantize,
+  rectBetween,
+  type Bounds,
+  type Point
+} from '../shared/coords'
 import type {
   DisplayInfo,
+  FramePick,
   GhostUpdate,
   MarkKind,
   MarkState,
@@ -28,6 +47,11 @@ let showFrame = true
 let ghosts: GhostUpdate[] = []
 let mark: MarkState = null
 let markToken = 0
+let picking = false
+let gesture = false
+let picker: BrowserWindow | null = null
+let pendingShot: { displayId: number; image: string } | null = null
+let pickWait: ((pick: FramePick | null) => void) | null = null
 let overlayDip = { x: 0, y: 0, width: 800, height: 600 }
 // Play-area numbers are Windows physical pixels. Electron's own window bounds are DIP.
 // The transparent overlay's CSS pixel is whichever of those two spaces it actually renders.
@@ -103,7 +127,8 @@ async function syncOverlaySpace(): Promise<void> {
     '({ width: window.innerWidth, height: window.innerHeight })'
   )) as { width: number; height: number }
   const physical = physicalScreen()
-  const dipDistance = Math.abs(info.width - overlayDip.width) + Math.abs(info.height - overlayDip.height)
+  const dipDistance =
+    Math.abs(info.width - overlayDip.width) + Math.abs(info.height - overlayDip.height)
   const physicalDistance =
     Math.abs(info.width - physical.width) + Math.abs(info.height - physical.height)
   overlayCssIsPhysical = physicalDistance <= dipDistance
@@ -128,12 +153,14 @@ function pushOverlay(): void {
     showFrame,
     frame,
     mark,
+    picking,
     cursor: mark ? cursor : null,
     ghosts: ghosts.map((ghost) => {
       const gx = ghost.x
       const gy = ghost.y
       const visible = gx != null && gy != null
       const point = visible ? toOverlayPoint(project({ x: gx, y: gy }, playArea)) : { x: 0, y: 0 }
+      const flash = ghost.pings.length > 0
       return {
         id: ghost.id,
         name: ghost.name,
@@ -143,7 +170,8 @@ function pushOverlay(): void {
         y: point.y,
         nx: visible ? gx : null,
         ny: visible ? gy : null,
-        flash: ghost.pings.length > 0
+        flash,
+        flashId: flash ? ghost.pings[ghost.pings.length - 1].id : ''
       }
     })
   }
@@ -205,6 +233,250 @@ async function captureWindow(): Promise<void> {
   const raw = result.window
   playArea = { x: raw.x, y: raw.y, width: raw.width, height: raw.height }
   publishArea(result.window.title)
+}
+
+function roundArea(area: Bounds): Bounds {
+  const x = Math.round(area.x)
+  const y = Math.round(area.y)
+  const right = Math.round(area.x + area.width)
+  const bottom = Math.round(area.y + area.height)
+  return { x, y, width: Math.max(0, right - x), height: Math.max(0, bottom - y) }
+}
+
+function overlayPointToPhysical(point: Point): Point {
+  if (overlayCssIsPhysical) {
+    const origin = physicalScreen()
+    return { x: point.x + origin.x, y: point.y + origin.y }
+  }
+  return screen.dipToScreenPoint({ x: point.x + overlayDip.x, y: point.y + overlayDip.y })
+}
+
+function settlePick(pick: FramePick | null): void {
+  const wait = pickWait
+  if (!wait) return
+  pickWait = null
+  wait(pick)
+}
+
+function closePicker(): void {
+  const win = picker
+  picker = null
+  if (win && !win.isDestroyed()) win.close()
+}
+
+function parsePick(value: unknown): FramePick | null {
+  if (!value || typeof value !== 'object') return null
+  const pick = value as FramePick
+  if (pick.space === 'display') {
+    const numbers = [pick.displayId, pick.x, pick.y, pick.width, pick.height]
+    if (!numbers.every((item) => typeof item === 'number' && Number.isFinite(item))) return null
+    if (pick.width <= 0 || pick.height <= 0) return null
+    return {
+      space: 'display',
+      displayId: pick.displayId,
+      x: Math.min(1, Math.max(0, pick.x)),
+      y: Math.min(1, Math.max(0, pick.y)),
+      width: Math.min(1, pick.width),
+      height: Math.min(1, pick.height)
+    }
+  }
+  if (pick.space === 'overlay') {
+    const numbers = [pick.x1, pick.y1, pick.x2, pick.y2]
+    if (!numbers.every((item) => typeof item === 'number' && Number.isFinite(item))) return null
+    return { space: 'overlay', x1: pick.x1, y1: pick.y1, x2: pick.x2, y2: pick.y2 }
+  }
+  return null
+}
+
+function keepArea(area: Bounds): void {
+  if (area.width < 40 || area.height < 40) {
+    publishArea('Drag a larger rectangle.')
+    return
+  }
+  playArea = area
+  publishArea(null)
+}
+
+function applyDisplayPick(display: Display, pick: Extract<FramePick, { space: 'display' }>): void {
+  const bounds = physicalBounds(display.bounds)
+  keepArea(
+    roundArea({
+      x: bounds.x + pick.x * bounds.width,
+      y: bounds.y + pick.y * bounds.height,
+      width: pick.width * bounds.width,
+      height: pick.height * bounds.height
+    })
+  )
+}
+
+function applyOverlayPick(pick: Extract<FramePick, { space: 'overlay' }>): void {
+  keepArea(
+    roundArea(
+      rectBetween(
+        overlayPointToPhysical({ x: pick.x1, y: pick.y1 }),
+        overlayPointToPhysical({ x: pick.x2, y: pick.y2 })
+      )
+    )
+  )
+}
+
+async function captureDisplay(display: Display): Promise<string | null> {
+  const physical = physicalBounds(display.bounds)
+  const capture = desktopCapturer
+    .getSources({
+      types: ['screen'],
+      thumbnailSize: {
+        width: Math.max(1, Math.round(physical.width)),
+        height: Math.max(1, Math.round(physical.height))
+      }
+    })
+    .then((sources) => {
+      const wanted = String(display.id)
+      const source = sources.find((item) => item.display_id === wanted) ?? sources[0]
+      if (!source || source.thumbnail.isEmpty()) return null
+      const size = source.thumbnail.getSize()
+      if (size.width < 320 || size.height < 200) return null
+      const aspect = size.width / Math.max(1, size.height)
+      const wantedAspect = physical.width / Math.max(1, physical.height)
+      if (Math.abs(aspect - wantedAspect) > 0.08) return null
+      const bitmap = source.thumbnail.toBitmap()
+      let peak = 0
+      for (let i = 0; i < bitmap.length; i += 64) {
+        peak = Math.max(peak, bitmap[i] ?? 0, bitmap[i + 1] ?? 0, bitmap[i + 2] ?? 0)
+        if (peak > 8) break
+      }
+      if (peak <= 8) return null
+      return source.thumbnail.toDataURL()
+    })
+    .catch(() => null)
+  return Promise.race([
+    capture,
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 12000))
+  ])
+}
+
+function createPicker(display: Display): BrowserWindow {
+  const win = new BrowserWindow({
+    x: display.bounds.x,
+    y: display.bounds.y,
+    width: display.bounds.width,
+    height: display.bounds.height,
+    frame: false,
+    show: false,
+    transparent: false,
+    backgroundColor: '#000000',
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    movable: false,
+    focusable: true,
+    roundedCorners: false,
+    thickFrame: false,
+    title: 'Ghostlink frame',
+    webPreferences: {
+      preload: preloadPath(),
+      sandbox: false
+    }
+  })
+  win.setAlwaysOnTop(true, 'screen-saver')
+  win.setBounds(display.bounds)
+  return win
+}
+
+function loadPageAndWait(win: BrowserWindow, page: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const done = (): void => {
+      win.webContents.removeListener('did-fail-load', fail)
+      resolve()
+    }
+    const fail = (): void => {
+      win.webContents.removeListener('did-finish-load', done)
+      reject(new Error('load failed'))
+    }
+    win.webContents.once('did-finish-load', done)
+    win.webContents.once('did-fail-load', fail)
+    loadPage(win, page)
+  })
+}
+
+async function runScreenshotPick(display: Display, image: string): Promise<FramePick | null> {
+  if (overlay && !overlay.isDestroyed()) overlay.hide()
+  const win = createPicker(display)
+  picker = win
+  pendingShot = { displayId: display.id, image }
+  const result = new Promise<FramePick | null>((resolve) => {
+    pickWait = resolve
+  })
+  win.on('closed', () => {
+    if (picker === win) picker = null
+    settlePick(null)
+  })
+  try {
+    await loadPageAndWait(win, 'select.html')
+  } catch {
+    settlePick(null)
+    return result
+  }
+  if (win.isDestroyed()) return result
+  win.setBounds(display.bounds)
+  win.show()
+  win.moveTop()
+  win.focus()
+  return result
+}
+
+async function runOverlayPick(): Promise<FramePick | null> {
+  if (!overlay || overlay.isDestroyed()) return null
+  await syncOverlaySpace()
+  picking = true
+  overlay.setIgnoreMouseEvents(false)
+  overlay.setFocusable(true)
+  pushOverlay()
+  overlay.show()
+  overlay.moveTop()
+  overlay.focus()
+  return new Promise((resolve) => {
+    pickWait = resolve
+  })
+}
+
+async function beginFrameDrag(displayId: number): Promise<void> {
+  if (gesture || mark) return
+  gesture = true
+  const seatRaised = Boolean(pad && !pad.isDestroyed())
+  const overlayVisible = Boolean(overlay && !overlay.isDestroyed() && overlay.isVisible())
+  if (seatRaised) pad?.setAlwaysOnTop(false)
+  sendControl(CH.playMarking, true)
+  sendControl(CH.playNote, 'Preparing the picture.')
+  try {
+    const display =
+      screen.getAllDisplays().find((item) => item.id === displayId) ?? screen.getPrimaryDisplay()
+    const image = await captureDisplay(display)
+    sendControl(
+      CH.playNote,
+      image ? 'Drag across the screenshot, then release.' : 'Drag across the picture, then release.'
+    )
+    const pick = image ? await runScreenshotPick(display, image) : await runOverlayPick()
+    if (!pick) {
+      sendControl(CH.playNote, null)
+      return
+    }
+    if (pick.space === 'display') applyDisplayPick(display, pick)
+    else applyOverlayPick(pick)
+  } finally {
+    picking = false
+    pendingShot = null
+    closePicker()
+    if (overlay && !overlay.isDestroyed()) {
+      overlay.setIgnoreMouseEvents(true)
+      overlay.setFocusable(false)
+      if (overlayVisible) overlay.showInactive()
+    }
+    if (seatRaised && pad && !pad.isDestroyed()) pad.setAlwaysOnTop(true, 'screen-saver')
+    gesture = false
+    sendControl(CH.playMarking, false)
+    pushOverlay()
+  }
 }
 
 async function beginMark(kind: MarkKind): Promise<void> {
@@ -314,6 +586,7 @@ function createOverlay(): void {
     }
   })
   overlay.setIgnoreMouseEvents(true)
+  overlay.webContents.setBackgroundThrottling(false)
   overlay.setAlwaysOnTop(true, 'screen-saver')
   overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   overlay.on('ready-to-show', () => {
@@ -369,6 +642,7 @@ function openPad(launch: PadLaunch): void {
       sandbox: false
     }
   })
+  pad.webContents.setBackgroundThrottling(false)
   pad.on('ready-to-show', () => {
     if (pad && !pad.isDestroyed()) showPad(pad)
   })
@@ -395,8 +669,29 @@ function registerIpc(): void {
     publishArea(null)
     return true
   })
-  ipcMain.handle(CH.playMark, async (_event, kind: MarkKind) => {
-    await beginMark(kind)
+  ipcMain.handle(CH.playMark, async (event, kind: MarkKind) => {
+    if (event.sender.id !== control?.webContents.id) return
+    if (gesture || mark) return
+    gesture = true
+    try {
+      await beginMark(kind)
+    } finally {
+      gesture = false
+    }
+  })
+  ipcMain.handle(CH.playPick, async (event, displayId: number) => {
+    if (event.sender.id !== control?.webContents.id) return
+    if (typeof displayId !== 'number' || !Number.isFinite(displayId)) return
+    await beginFrameDrag(displayId)
+  })
+  ipcMain.handle(CH.playPickShot, (event) => {
+    if (event.sender.id !== picker?.webContents.id) return null
+    return pendingShot
+  })
+  ipcMain.handle(CH.playPickFinish, (event, payload: unknown) => {
+    const sender = event.sender.id
+    if (sender !== picker?.webContents.id && sender !== overlay?.webContents.id) return
+    settlePick(parsePick(payload))
   })
   ipcMain.handle(CH.hook, () => watch.current?.status ?? { live: false, detail: 'Not ready' })
   ipcMain.handle(CH.pad, (_event, launch: PadLaunch) => {

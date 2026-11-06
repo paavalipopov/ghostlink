@@ -36,6 +36,17 @@ export function quantize(value: number, steps = 1000): number {
   return Math.round(value * steps) / steps
 }
 
+export function rectBetween(a: Point, b: Point): Bounds {
+  const x = Math.min(a.x, b.x)
+  const y = Math.min(a.y, b.y)
+  return {
+    x,
+    y,
+    width: Math.abs(a.x - b.x),
+    height: Math.abs(a.y - b.y)
+  }
+}
+
 export function applyCorner(area: Bounds, corner: Corner, point: Point): Bounds {
   if (corner === 'top-left') {
     const right = area.x + area.width

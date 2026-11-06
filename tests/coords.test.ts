@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { applyCorner, isInside, normalize, project, quantize } from '../src/shared/coords'
+import {
+  applyCorner,
+  isInside,
+  normalize,
+  project,
+  quantize,
+  rectBetween
+} from '../src/shared/coords'
 import { parseWindowRow } from '../src/shared/parse-windows'
 import { explainLinkError, roomIdFromCode } from '../src/shared/protocol'
 
@@ -24,6 +31,15 @@ describe('play area coordinates', () => {
   it('quantizes to thousandths so tiny mouse jitter is not sent', () => {
     expect(quantize(0.1234)).toBe(0.123)
     expect(quantize(0.1235)).toBe(0.124)
+  })
+
+  it('uses the rectangle between two drag points', () => {
+    expect(rectBetween({ x: 900, y: 200 }, { x: 400, y: 700 })).toEqual({
+      x: 400,
+      y: 200,
+      width: 500,
+      height: 500
+    })
   })
 
   it('moves one corner without collapsing the rectangle', () => {

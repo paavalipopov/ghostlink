@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { joinRoom as joinNostr } from 'trystero'
-import { APP_ID, colorForPeer, explainLinkError, roomIdFromCode } from '../../shared/protocol'
+import {
+  APP_ID,
+  CLICK_MS,
+  colorForPeer,
+  explainLinkError,
+  roomIdFromCode
+} from '../../shared/protocol'
 import type { MoveMessage, PingMessage } from '../../shared/protocol'
 
 export type LinkSettings = {
@@ -75,7 +81,7 @@ export function useGhostLink(active: boolean, settings: LinkSettings): GhostLink
         let changed = false
         const next: Record<string, ShownGhost> = {}
         for (const [id, ghost] of Object.entries(current)) {
-          const pings = ghost.pings.filter((ping) => now - ping.at < 900)
+          const pings = ghost.pings.filter((ping) => now - ping.at < CLICK_MS)
           if (pings.length !== ghost.pings.length) changed = true
           next[id] = pings.length === ghost.pings.length ? ghost : { ...ghost, pings }
         }

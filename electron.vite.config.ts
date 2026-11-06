@@ -18,7 +18,8 @@ export default defineConfig({
         input: {
           index: resolve('src/renderer/index.html'),
           overlay: resolve('src/renderer/overlay.html'),
-          pad: resolve('src/renderer/pad.html')
+          pad: resolve('src/renderer/pad.html'),
+          select: resolve('src/renderer/select.html')
         }
       }
     }

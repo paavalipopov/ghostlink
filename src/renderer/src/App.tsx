@@ -91,7 +91,6 @@ function monitorTitle(state: 'idle' | 'wait' | 'live' | 'error', detail: string)
 function App(): JSX.Element {
   const [name, setName] = useState(() => stored('ghostlink.name', ''))
   const [code, setCode] = useState(() => stored('ghostlink.code', ''))
-  const [pingOn, setPingOn] = useState(() => stored('ghostlink.ping', '1') !== '0')
   const [showFrame, setShowFrame] = useState(() => stored('ghostlink.frame', '1') !== '0')
   const [monitoring, setMonitoring] = useState(false)
   const [displays, setDisplays] = useState<DisplayInfo[]>([])
@@ -99,20 +98,17 @@ function App(): JSX.Element {
   const [area, setArea] = useState<Bounds | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const [marking, setMarking] = useState(false)
-  const [hookDetail, setHookDetail] = useState('')
 
   const settings: LinkSettings = { code }
   const link = useGhostLink(monitoring, settings)
   const { publishMove, publishPing } = link
   const enabled = useRef(false)
   const nameRef = useRef(name)
-  const pingRef = useRef(pingOn)
 
   useEffect(() => {
     enabled.current = monitoring
     nameRef.current = name.trim() || 'Friend'
-    pingRef.current = pingOn
-  }, [monitoring, name, pingOn])
+  }, [monitoring, name])
 
   useEffect(() => {
     const raw = stored('ghostlink.areaPx', '')
@@ -130,7 +126,6 @@ function App(): JSX.Element {
       )
     })
     void window.api.getPlayArea().then(setArea)
-    void window.api.hookStatus().then((status) => setHookDetail(status.detail))
     const offArea = window.api.onPlayArea((next) => {
       setArea(next)
       remember('ghostlink.areaPx', JSON.stringify(next))
@@ -146,7 +141,7 @@ function App(): JSX.Element {
       })
     })
     const offClick = window.api.onClick((sample) => {
-      if (!enabled.current || !pingRef.current || !sample.inside) return
+      if (!enabled.current || !sample.inside) return
       publishPing({
         name: nameRef.current,
         x: sample.x,
@@ -340,35 +335,25 @@ function App(): JSX.Element {
             The window under my mouse
           </Button>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            title="Countdown, then the top-left corner follows the pointer. Ctrl+Alt+1."
-            disabled={marking}
-            onClick={() => void window.api.mark('top-left')}
-          >
-            Mark top-left
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            title="Countdown, then the bottom-right corner follows the pointer. Ctrl+Alt+2."
-            disabled={marking}
-            onClick={() => void window.api.mark('bottom-right')}
-          >
-            Mark bottom-right
-          </Button>
-        </div>
+        <Button
+          type="button"
+          variant="outline"
+          data-testid="drag-frame"
+          title="Click and drag across a screenshot. The frame is the rectangle between those two points."
+          disabled={displayId == null || marking}
+          onClick={() => {
+            if (displayId == null) return
+            void window.api.pickFrame(displayId)
+          }}
+        >
+          Drag the frame
+        </Button>
         <p data-testid="play-area" className="text-xs text-muted-foreground">
           {marking
-            ? 'Move the pointer, then hold still.'
+            ? note || 'Move the pointer, then hold still.'
             : area
-              ? `${Math.round(area.width)} × ${Math.round(area.height)} at ${Math.round(area.x)}, ${Math.round(area.y)}`
+              ? `${Math.round(area.width)} × ${Math.round(area.height)} at ${Math.round(area.x)}, ${Math.round(area.y)}${note ? ` · ${note}` : ''}`
               : 'Waiting for a display.'}
-          {note ? ` · ${note}` : ''}
         </p>
         <div className="flex items-center justify-between gap-3" title="Show or hide the frame">
           <Label htmlFor="frame">Show the outline</Label>
@@ -376,44 +361,20 @@ function App(): JSX.Element {
         </div>
       </section>
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-medium">Click</h2>
-        <div className="flex items-center justify-between gap-3" title={hookDetail}>
-          <Label htmlFor="ping">Color on click</Label>
-          <Switch
-            id="ping"
-            data-testid="ping-toggle"
-            checked={pingOn}
-            onCheckedChange={(value) => {
-              setPingOn(value)
-              remember('ghostlink.ping', value ? '1' : '0')
-            }}
-          />
-        </div>
-      </section>
-
-      <details className="rounded-lg border border-border px-3 py-2 text-sm">
-        <summary
-          className="cursor-pointer text-muted-foreground"
-          title="Second window in this room"
+      <div className="flex justify-center">
+        <Button
+          type="button"
+          variant="ghost"
+          className="border border-border"
+          style={{ background: 'var(--background)', color: 'var(--foreground)' }}
+          data-testid="open-pad"
+          title="Open a second window that joins this code"
+          disabled={!codeOk}
+          onClick={() => void window.api.openPad({ code: code.trim() })}
         >
-          Try it on this PC
-        </summary>
-        <div className="mt-3">
-          <Button
-            type="button"
-            variant="outline"
-            data-testid="open-pad"
-            title="Open a second window that joins this code"
-            disabled={!codeOk}
-            onClick={() =>
-              void window.api.openPad({ code: code.trim() })
-            }
-          >
-            Open a test window
-          </Button>
-        </div>
-      </details>
+          Test run
+        </Button>
+      </div>
     </main>
   )
 }

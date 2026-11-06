@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import { CH, type GhostlinkApi, type PadLaunch } from '../shared/bridge'
 import type { Bounds } from '../shared/coords'
-import type { GhostUpdate } from '../shared/protocol'
+import type { FramePick, GhostUpdate } from '../shared/protocol'
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
   const listener = (_event: IpcRendererEvent, payload: T): void => {
@@ -20,6 +20,9 @@ const api: GhostlinkApi = {
   useDisplay: (id) => ipcRenderer.invoke(CH.playUseDisplay, id),
   restorePlayArea: (area: Bounds) => ipcRenderer.invoke(CH.playRestore, area),
   mark: (kind) => ipcRenderer.invoke(CH.playMark, kind),
+  pickFrame: (displayId) => ipcRenderer.invoke(CH.playPick, displayId),
+  pickShot: () => ipcRenderer.invoke(CH.playPickShot),
+  finishPick: (pick: FramePick | null) => ipcRenderer.invoke(CH.playPickFinish, pick),
   onPlayArea: (cb) => subscribe(CH.playArea, cb),
   onNote: (cb) => subscribe(CH.playNote, cb),
   onMarking: (cb) => subscribe(CH.playMarking, cb),

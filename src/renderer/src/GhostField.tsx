@@ -1,5 +1,4 @@
 import type { JSX } from 'react'
-import { CLICK_COLOR } from '../../shared/protocol'
 import type { ShownGhost } from './link'
 import { CursorMark } from './CursorMark'
 import './assets/marks.css'
@@ -21,7 +20,8 @@ export function GhostField({ ghosts }: { ghosts: Record<string, ShownGhost> }): 
             >
               <CursorMark
                 name={ghost.name}
-                color={ghost.pings.length > 0 ? CLICK_COLOR : ghost.color}
+                color={ghost.color}
+                clickKey={ghost.pings.length > 0 ? ghost.pings[ghost.pings.length - 1].id : null}
               />
             </div>
           )}

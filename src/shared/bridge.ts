@@ -1,6 +1,7 @@
 import type { Bounds } from './coords'
 import type {
   DisplayInfo,
+  FramePick,
   GhostUpdate,
   HookStatus,
   MarkKind,
@@ -17,6 +18,9 @@ export const CH = {
   playGet: 'play:get',
   playUseDisplay: 'play:display',
   playMark: 'play:mark',
+  playPick: 'play:pick',
+  playPickShot: 'play:pick-shot',
+  playPickFinish: 'play:pick-finish',
   playArea: 'play:area',
   playNote: 'play:note',
   playMarking: 'play:marking',
@@ -36,6 +40,9 @@ export type GhostlinkApi = {
   useDisplay: (id: number) => Promise<Bounds | null>
   restorePlayArea: (area: Bounds) => Promise<boolean>
   mark: (kind: MarkKind) => Promise<void>
+  pickFrame: (displayId: number) => Promise<void>
+  pickShot: () => Promise<{ displayId: number; image: string } | null>
+  finishPick: (pick: FramePick | null) => Promise<void>
   onPlayArea: (cb: (area: Bounds) => void) => () => void
   onNote: (cb: (note: string | null) => void) => () => void
   onMarking: (cb: (active: boolean) => void) => () => void

@@ -54,15 +54,34 @@ export type OverlayGhost = {
   ny: number | null
   visible: boolean
   flash: boolean
+  flashId: string
 }
 
 export type OverlayModel = {
   showFrame: boolean
   frame: Bounds | null
   mark: MarkState
+  picking: boolean
   cursor: Point | null
   ghosts: OverlayGhost[]
 }
+
+export type FramePick =
+  | {
+      space: 'display'
+      displayId: number
+      x: number
+      y: number
+      width: number
+      height: number
+    }
+  | {
+      space: 'overlay'
+      x1: number
+      y1: number
+      x2: number
+      y2: number
+    }
 
 export type HookStatus = {
   live: boolean
@@ -72,6 +91,7 @@ export type HookStatus = {
 const PALETTE = ['#e2a14a', '#6cb6d9', '#d46a8c', '#8fbf6a', '#c7b4f0']
 
 export const CLICK_COLOR = '#f4efe6'
+export const CLICK_MS = 1000
 
 export function colorForPeer(id: string): string {
   let hash = 0

@@ -1,8 +1,10 @@
 import type { JSX } from 'react'
+import { CLICK_COLOR, CLICK_MS } from '../../shared/protocol'
+import './assets/marks.css'
 
-export function CursorMark({ name, color }: { name: string; color: string }): JSX.Element {
+function MarkFace({ name, color }: { name: string; color: string }): JSX.Element {
   return (
-    <div style={{ pointerEvents: 'none' }}>
+    <>
       <svg
         width="22"
         height="22"
@@ -33,6 +35,32 @@ export function CursorMark({ name, color }: { name: string; color: string }): JS
       >
         {name}
       </div>
+    </>
+  )
+}
+
+export function CursorMark({
+  name,
+  color,
+  clickKey
+}: {
+  name: string
+  color: string
+  clickKey?: string | null
+}): JSX.Element {
+  return (
+    <div style={{ position: 'relative', pointerEvents: 'none' }}>
+      <MarkFace name={name} color={color} />
+      {clickKey ? (
+        <div
+          key={clickKey}
+          className="click-blink"
+          data-testid="click-blink"
+          style={{ animationDuration: `${CLICK_MS}ms` }}
+        >
+          <MarkFace name={name} color={CLICK_COLOR} />
+        </div>
+      ) : null}
     </div>
   )
 }

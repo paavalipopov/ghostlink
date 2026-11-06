@@ -6,6 +6,44 @@
     top 60ms linear;
 }
 
+.click-blink {
+  position: absolute;
+  left: 0;
+  top: 0;
+  animation-name: click-blink;
+  animation-timing-function: linear;
+  animation-iteration-count: 1;
+  animation-fill-mode: forwards;
+  pointer-events: none;
+}
+
+@keyframes click-blink {
+  0%,
+  16.666% {
+    opacity: 1;
+  }
+  16.667%,
+  33.333% {
+    opacity: 0;
+  }
+  33.334%,
+  50% {
+    opacity: 1;
+  }
+  50.001%,
+  66.666% {
+    opacity: 0;
+  }
+  66.667%,
+  83.333% {
+    opacity: 1;
+  }
+  83.334%,
+  100% {
+    opacity: 0;
+  }
+}
+
 .frame {
   position: absolute;
   border: 2px solid rgba(226, 161, 74, 0.95);
