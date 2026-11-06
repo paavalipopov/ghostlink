@@ -19,6 +19,8 @@ public class GhostlinkWin {
   [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
   [DllImport("user32.dll")] public static extern int GetWindowTextLength(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+  [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
   [DllImport("shcore.dll")] public static extern int SetProcessDpiAwareness(int awareness);
   public static void EnableDpi() {
     try {
@@ -33,20 +35,41 @@ public class GhostlinkWin {
     if (!GetCursorPos(out p)) return "";
     return p.X + " " + p.Y;
   }
-  public static string At(int x, int y) {
-    EnableDpi();
-    IntPtr h = WindowFromPoint(new POINT { X = x, Y = y });
-    if (h == IntPtr.Zero) return "";
-    IntPtr root = GetAncestor(h, 2);
-    if (root != IntPtr.Zero) h = root;
+  static string TitleOf(IntPtr h) {
     int len = GetWindowTextLength(h);
     var sb = new StringBuilder(Math.Max(len, 0) + 1);
     if (len > 0) GetWindowText(h, sb, sb.Capacity);
+    return sb.ToString().Replace("\t", " ").Replace("\r", " ").Replace("\n", " ").Trim();
+  }
+  static bool Ours(string title) {
+    if (title.Length == 0) return false;
+    return title.StartsWith("Ghostlink", StringComparison.OrdinalIgnoreCase)
+      && (title.Length == 9 || !char.IsLetterOrDigit(title[9]));
+  }
+  static string Row(IntPtr h) {
     RECT r;
     if (!GetWindowRect(h, out r)) return "";
-    string tab = "\u0009";
-    string title = sb.ToString().Replace(tab, " ").Replace("\r", " ").Replace("\n", " ");
-    return h.ToInt64() + tab + r.Left + tab + r.Top + tab + (r.Right - r.Left) + tab + (r.Bottom - r.Top) + tab + title;
+    string title = TitleOf(h);
+    return h.ToInt64() + "\t" + r.Left + "\t" + r.Top + "\t" + (r.Right - r.Left) + "\t" + (r.Bottom - r.Top) + "\t" + title;
+  }
+  public static string At(int x, int y) {
+    EnableDpi();
+    POINT p = new POINT { X = x, Y = y };
+    IntPtr h = WindowFromPoint(p);
+    if (h == IntPtr.Zero) return "";
+    for (int i = 0; i < 24 && h != IntPtr.Zero; i++) {
+      IntPtr root = GetAncestor(h, 2);
+      if (root != IntPtr.Zero) h = root;
+      if (IsWindowVisible(h)) {
+        RECT r;
+        if (GetWindowRect(h, out r) && p.X >= r.Left && p.X < r.Right && p.Y >= r.Top && p.Y < r.Bottom) {
+          string title = TitleOf(h);
+          if (title.Length > 0 && !Ours(title)) return Row(h);
+        }
+      }
+      h = GetWindow(h, 2);
+    }
+    return "";
   }
 }
 '@

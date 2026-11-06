@@ -237,8 +237,11 @@ function sanitizeGhosts(value: unknown): GhostUpdate[] {
 async function captureWindow(): Promise<void> {
   const point = pointerPhysical()
   const cover = overlay && !overlay.isDestroyed() && overlay.isVisible()
+  const seatRaised = Boolean(pad && !pad.isDestroyed())
   if (cover) overlay?.hide()
+  if (seatRaised) pad?.setAlwaysOnTop(false)
   try {
+    await delay(60)
     const result = await windowAtPoint(point.x, point.y)
     if (!result.window) {
       publishArea(result.note)
@@ -248,6 +251,7 @@ async function captureWindow(): Promise<void> {
     playArea = { x: raw.x, y: raw.y, width: raw.width, height: raw.height }
     publishArea(result.window.title)
   } finally {
+    if (seatRaised && pad && !pad.isDestroyed()) pad.setAlwaysOnTop(true, 'screen-saver')
     if (cover && overlay && !overlay.isDestroyed()) overlay.showInactive()
   }
 }

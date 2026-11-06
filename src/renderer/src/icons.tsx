@@ -76,7 +76,7 @@ export function IconWindow(): JSX.Element {
   return (
     <Stroke>
       <rect x="2" y="2.5" width="12" height="11" rx="1.2" />
-      <path d="M6 7.2 l0 5.2 1.6-1.5 1.1 2 1-.5-1.1-2 2.2 0z" fill="currentColor" stroke="none" />
+      <path d="M10 7.2 l0 5.2 -1.6-1.5 -1.1 2 -1-.5 1.1-2 -2.2 0z" fill="currentColor" stroke="none" />
     </Stroke>
   )
 }
