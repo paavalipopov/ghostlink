@@ -5,8 +5,7 @@ import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
 import { Label } from '@renderer/components/ui/label'
 import { Switch } from '@renderer/components/ui/switch'
-import { GhostField } from './GhostField'
-import { useGhostLink, type LinkSettings } from './link'
+import { useGhostLink, type LinkPhase, type LinkSettings } from './link'
 
 function stored(key: string, fallback: string): string {
   try {
@@ -22,18 +21,6 @@ function remember(key: string, value: string): void {
   } catch {
     // Private mode can reject storage. The session still works.
   }
-}
-
-function relayError(url: string): string | null {
-  const value = url.trim()
-  if (!value) return null
-  return /^wss?:\/\//i.test(value) ? null : 'Relay address should start with ws:// or wss://'
-}
-
-function turnError(url: string): string | null {
-  const value = url.trim()
-  if (!value) return null
-  return /^turns?:/i.test(value) ? null : 'TURN address should start with turn: or turns:'
 }
 
 const CODE_WORDS = [
@@ -55,46 +42,80 @@ const CODE_WORDS = [
   'marigold'
 ]
 
+const NAMES = [
+  'Ada',
+  'Nico',
+  'Remy',
+  'Jules',
+  'Sasha',
+  'Quinn',
+  'Milo',
+  'Noor',
+  'Alex',
+  'Sam',
+  'Rin',
+  'Kai'
+]
+
 function makeCode(): string {
   const pick = (): string => CODE_WORDS[Math.floor(Math.random() * CODE_WORDS.length)]
   const number = Math.floor(10 + Math.random() * 90)
   return `${pick()}-${pick()}-${number}`
 }
 
+function makeName(): string {
+  return NAMES[Math.floor(Math.random() * NAMES.length)]
+}
+
+function monitorState(active: boolean, phase: LinkPhase): 'idle' | 'wait' | 'live' | 'error' {
+  if (!active) return 'idle'
+  if (phase === 'linked') return 'live'
+  if (phase === 'error') return 'error'
+  return 'wait'
+}
+
+function monitorColor(state: 'idle' | 'wait' | 'live' | 'error'): string {
+  if (state === 'live') return '#3dbe6a'
+  if (state === 'wait') return '#e2a14a'
+  if (state === 'error') return '#d4654a'
+  return '#5c564c'
+}
+
+function monitorTitle(state: 'idle' | 'wait' | 'live' | 'error', detail: string): string {
+  if (state === 'live') return 'Connected'
+  if (state === 'wait') return 'Waiting for the other computer'
+  if (state === 'error') return detail || 'Could not connect'
+  return 'Not connected'
+}
+
 function App(): JSX.Element {
   const [name, setName] = useState(() => stored('ghostlink.name', ''))
   const [code, setCode] = useState(() => stored('ghostlink.code', ''))
-  const [relayUrl, setRelayUrl] = useState(() => stored('ghostlink.relay', ''))
-  const [turnUrl, setTurnUrl] = useState(() => stored('ghostlink.turnUrl', ''))
-  const [turnUsername, setTurnUsername] = useState(() => stored('ghostlink.turnUser', ''))
-  const [turnCredential, setTurnCredential] = useState(() => stored('ghostlink.turnPass', ''))
   const [pingOn, setPingOn] = useState(() => stored('ghostlink.ping', '1') !== '0')
   const [showFrame, setShowFrame] = useState(() => stored('ghostlink.frame', '1') !== '0')
-  const [onTop, setOnTop] = useState(() => stored('ghostlink.ontop', '1') !== '0')
-  const [connected, setConnected] = useState(false)
+  const [monitoring, setMonitoring] = useState(false)
   const [displays, setDisplays] = useState<DisplayInfo[]>([])
   const [displayId, setDisplayId] = useState<number | null>(null)
   const [area, setArea] = useState<Bounds | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const [marking, setMarking] = useState(false)
   const [hookDetail, setHookDetail] = useState('')
-  const [copied, setCopied] = useState(false)
 
-  const settings: LinkSettings = { code, relayUrl, turnUrl, turnUsername, turnCredential }
-  const link = useGhostLink(connected, settings)
+  const settings: LinkSettings = { code }
+  const link = useGhostLink(monitoring, settings)
   const { publishMove, publishPing } = link
   const enabled = useRef(false)
   const nameRef = useRef(name)
   const pingRef = useRef(pingOn)
 
   useEffect(() => {
-    enabled.current = connected
+    enabled.current = monitoring
     nameRef.current = name.trim() || 'Friend'
     pingRef.current = pingOn
-  }, [connected, name, pingOn])
+  }, [monitoring, name, pingOn])
 
   useEffect(() => {
-    const raw = stored('ghostlink.area', '')
+    const raw = stored('ghostlink.areaPx', '')
     if (raw) {
       try {
         void window.api.restorePlayArea(JSON.parse(raw) as Bounds)
@@ -112,7 +133,7 @@ function App(): JSX.Element {
     void window.api.hookStatus().then((status) => setHookDetail(status.detail))
     const offArea = window.api.onPlayArea((next) => {
       setArea(next)
-      remember('ghostlink.area', JSON.stringify(next))
+      remember('ghostlink.areaPx', JSON.stringify(next))
     })
     const offNote = window.api.onNote(setNote)
     const offMarking = window.api.onMarking(setMarking)
@@ -143,9 +164,9 @@ function App(): JSX.Element {
   }, [publishMove, publishPing])
 
   useEffect(() => {
-    if (!connected) return
+    if (!monitoring) return
     publishMove({ name: name.trim() || 'Friend', x: null, y: null })
-  }, [connected, name, publishMove])
+  }, [monitoring, name, publishMove])
 
   useEffect(() => {
     const payload = Object.entries(link.ghosts).map(([id, ghost]) => ({
@@ -164,135 +185,126 @@ function App(): JSX.Element {
     remember('ghostlink.frame', showFrame ? '1' : '0')
   }, [showFrame])
 
-  useEffect(() => {
-    window.api.setPanelOnTop(onTop)
-    remember('ghostlink.ontop', onTop ? '1' : '0')
-  }, [onTop])
-
   const codeOk = code.trim().length >= 4
-  const relayProblem = relayError(relayUrl)
-  const turnProblem = turnError(turnUrl)
-  const formOk = codeOk && name.trim().length > 0 && !relayProblem && !turnProblem
-  const friends = Object.values(link.ghosts)
-    .map((ghost) => ghost.name)
-    .filter(Boolean)
-  const status =
-    link.phase === 'linked' && friends.length > 0
-      ? `Direct link is open with ${friends.join(', ')}.`
-      : link.detail
+  const formOk = codeOk && name.trim().length > 0
+  const linked = monitoring && link.phase === 'linked'
+  const dot = monitorState(monitoring, link.phase)
+  const dotTitle = monitorTitle(dot, link.detail)
 
   return (
     <main className="mx-auto flex h-full max-w-md flex-col gap-5 overflow-y-auto px-4 py-5">
-      <header className="space-y-1">
-        <p className="text-xs font-medium tracking-wide text-primary">Ghostlink</p>
-        <h1 className="text-xl font-semibold">See your friend’s cursor</h1>
-        <p className="text-sm text-muted-foreground">
-          Both of you open this app and your own copy of the game. Their cursor appears on your
-          screen, and a ring when they click. The ring does not click your game.
-        </p>
-      </header>
+      <h1 className="text-center text-3xl font-semibold tracking-tight">Ghostlink</h1>
 
       <section className="space-y-3 rounded-lg border border-border bg-card p-3">
-        <h2 className="text-sm font-medium">1. Join your friend</h2>
+        <h2 className="text-center text-base font-medium">Sync</h2>
         <div className="space-y-1.5">
-          <Label htmlFor="name">Your name</Label>
-          <Input
-            id="name"
-            data-testid="name-input"
-            value={name}
-            placeholder="Pavel"
-            onChange={(event) => {
-              setName(event.target.value)
-              remember('ghostlink.name', event.target.value)
-            }}
-          />
+          <Label htmlFor="name">Name</Label>
+          <div className="flex gap-2">
+            <Input
+              id="name"
+              className="min-w-0 flex-1"
+              data-testid="name-input"
+              value={name}
+              placeholder="Name"
+              onChange={(event) => {
+                setName(event.target.value)
+                remember('ghostlink.name', event.target.value)
+              }}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              data-testid="random-name"
+              title="Pick a name"
+              onClick={() => {
+                const next = makeName()
+                setName(next)
+                remember('ghostlink.name', next)
+              }}
+            >
+              Random
+            </Button>
+          </div>
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="code">Shared code</Label>
-          <div className="flex flex-wrap gap-2">
+          <Label htmlFor="code">Code</Label>
+          <div className="flex gap-2">
             <Input
               id="code"
-              className="min-w-40 flex-1"
+              className="min-w-0 flex-1"
               data-testid="code-input"
               value={code}
               placeholder="amber-harbor-42"
               onChange={(event) => {
                 setCode(event.target.value)
                 remember('ghostlink.code', event.target.value)
+                setMonitoring(false)
               }}
             />
             <Button
               type="button"
               variant="outline"
+              data-testid="new-code"
+              title="Make a code and wait for the other computer"
               onClick={() => {
                 const next = makeCode()
                 setCode(next)
                 remember('ghostlink.code', next)
+                setMonitoring(true)
               }}
             >
               New code
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={!codeOk}
-              onClick={() => {
-                void window.api.copyText(code.trim()).then(() => {
-                  setCopied(true)
-                  setTimeout(() => setCopied(false), 1200)
-                })
-              }}
-            >
-              {copied ? 'Copied' : 'Copy'}
-            </Button>
           </div>
-          <p className="text-xs text-muted-foreground">
-            One of you clicks New code, then Copy, and pastes it into any chat. The other types that
-            exact code. Then both press Connect.
-          </p>
         </div>
         <Button
           type="button"
+          className="group w-full"
           data-testid="connect"
-          disabled={!connected && !formOk}
-          onClick={() => setConnected((value) => !value)}
-        >
-          {connected ? 'Disconnect' : 'Connect'}
-        </Button>
-        <p data-testid="status" data-phase={link.phase} className="text-sm">
-          <span
-            className={
-              link.phase === 'linked'
-                ? 'text-primary'
-                : link.phase === 'error'
-                  ? 'text-[#d4654a]'
-                  : 'text-muted-foreground'
+          title={linked ? 'Disconnect' : 'Paste their code, then connect'}
+          aria-label={linked ? 'Disconnect' : 'Connect'}
+          disabled={!linked && (!formOk || (monitoring && link.phase !== 'error'))}
+          onClick={() => {
+            if (linked) {
+              setMonitoring(false)
+              return
             }
-          >
-            {status}
-          </span>
-        </p>
-        {connected && (
-          <div
-            data-testid="stage"
-            className="relative aspect-video overflow-hidden rounded-md border border-border bg-[#100e0c]"
-          >
-            <GhostField ghosts={link.ghosts} />
-          </div>
-        )}
+            if (monitoring && link.phase === 'error') {
+              setMonitoring(false)
+              queueMicrotask(() => setMonitoring(true))
+              return
+            }
+            setMonitoring(true)
+          }}
+        >
+          {linked ? (
+            <>
+              <span className="group-hover:hidden">Connected</span>
+              <span className="hidden group-hover:inline">Disconnect</span>
+            </>
+          ) : (
+            'Connect'
+          )}
+        </Button>
+        <div className="flex justify-center">
+          <span
+            data-testid="monitor"
+            data-state={dot}
+            data-phase={link.phase}
+            title={dotTitle}
+            aria-label={dotTitle}
+            className="inline-block size-2.5 rounded-full"
+            style={{ background: monitorColor(dot) }}
+          />
+        </div>
       </section>
 
       <section className="space-y-3">
-        <div>
-          <h2 className="text-sm font-medium">2. Line it up with the game</h2>
-          <p className="text-xs text-muted-foreground">
-            Start the game in a window. Exclusive fullscreen hides the cursor. Both of you cover the
-            same game picture, not the whole desktop, unless the game fills the screen.
-          </p>
-        </div>
+        <h2 className="text-sm font-medium">Frame</h2>
         <Label htmlFor="display">Display</Label>
         <select
           id="display"
+          title="Screen the game is on"
           className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
           value={displayId ?? ''}
           onChange={(event) => setDisplayId(Number(event.target.value))}
@@ -308,6 +320,7 @@ function App(): JSX.Element {
           <Button
             type="button"
             variant="secondary"
+            title="Frame this whole display"
             disabled={displayId == null || marking}
             onClick={() => {
               if (displayId == null) return
@@ -319,22 +332,20 @@ function App(): JSX.Element {
           <Button
             type="button"
             variant="secondary"
+            title="Point at the game, then click. The frame matches that window."
             disabled={marking}
+            data-testid="mark-window"
             onClick={() => void window.api.mark('window')}
           >
             The window under my mouse
           </Button>
         </div>
-        <p className="text-xs text-muted-foreground">
-          Put the mouse over the game, then click “The window under my mouse”. If the outline
-          includes the title bar, mark the picture corners instead. A countdown lets you place the
-          pointer. Ctrl+Alt+1 is the top-left corner, Ctrl+Alt+2 is the bottom-right.
-        </p>
         <div className="flex flex-wrap gap-2">
           <Button
             type="button"
             variant="outline"
             size="sm"
+            title="Countdown, then the top-left corner follows the pointer. Ctrl+Alt+1."
             disabled={marking}
             onClick={() => void window.api.mark('top-left')}
           >
@@ -344,6 +355,7 @@ function App(): JSX.Element {
             type="button"
             variant="outline"
             size="sm"
+            title="Countdown, then the bottom-right corner follows the pointer. Ctrl+Alt+2."
             disabled={marking}
             onClick={() => void window.api.mark('bottom-right')}
           >
@@ -358,16 +370,16 @@ function App(): JSX.Element {
               : 'Waiting for a display.'}
           {note ? ` · ${note}` : ''}
         </p>
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center justify-between gap-3" title="Show or hide the frame">
           <Label htmlFor="frame">Show the outline</Label>
           <Switch id="frame" checked={showFrame} onCheckedChange={setShowFrame} />
         </div>
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-medium">3. Clicks</h2>
-        <div className="flex items-center justify-between gap-3">
-          <Label htmlFor="ping">Show a ring when I click</Label>
+        <h2 className="text-sm font-medium">Click</h2>
+        <div className="flex items-center justify-between gap-3" title={hookDetail}>
+          <Label htmlFor="ping">Color on click</Label>
           <Switch
             id="ping"
             data-testid="ping-toggle"
@@ -378,95 +390,24 @@ function App(): JSX.Element {
             }}
           />
         </div>
-        <p className="text-xs text-muted-foreground">{hookDetail}</p>
-        <div className="flex items-center justify-between gap-3">
-          <Label htmlFor="ontop">Keep this panel above the game</Label>
-          <Switch id="ontop" checked={onTop} onCheckedChange={setOnTop} />
-        </div>
       </section>
 
       <details className="rounded-lg border border-border px-3 py-2 text-sm">
-        <summary className="cursor-pointer text-muted-foreground">If you cannot connect</summary>
-        <div className="mt-3 space-y-3">
-          <p className="text-xs text-muted-foreground">
-            Leave this closed. It is only for a backup address if Connect never finds your friend.
-          </p>
-          <div className="space-y-1.5">
-            <Label htmlFor="relay">My signaling relay</Label>
-            <Input
-              id="relay"
-              data-testid="relay-url"
-              value={relayUrl}
-              placeholder="wss://your-vps.example"
-              onChange={(event) => {
-                setRelayUrl(event.target.value)
-                remember('ghostlink.relay', event.target.value)
-              }}
-            />
-            {relayProblem && <p className="text-xs text-[#d4654a]">{relayProblem}</p>}
-            <p className="text-xs text-muted-foreground">
-              Use this if the status stays on “looking”. Both of you set the same address.
-            </p>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="turn">TURN server</Label>
-            <Input
-              id="turn"
-              data-testid="turn-url"
-              value={turnUrl}
-              placeholder="turn:your-vps.example:3478"
-              onChange={(event) => {
-                setTurnUrl(event.target.value)
-                remember('ghostlink.turnUrl', event.target.value)
-              }}
-            />
-            <Input
-              aria-label="TURN username"
-              value={turnUsername}
-              placeholder="username"
-              onChange={(event) => {
-                setTurnUsername(event.target.value)
-                remember('ghostlink.turnUser', event.target.value)
-              }}
-            />
-            <Input
-              aria-label="TURN password"
-              type="password"
-              value={turnCredential}
-              placeholder="password"
-              onChange={(event) => {
-                setTurnCredential(event.target.value)
-                remember('ghostlink.turnPass', event.target.value)
-              }}
-            />
-            {turnProblem && <p className="text-xs text-[#d4654a]">{turnProblem}</p>}
-            <p className="text-xs text-muted-foreground">
-              Use this if it says a direct path did not open. The pointer is still encrypted.
-            </p>
-          </div>
-        </div>
-      </details>
-
-      <details className="rounded-lg border border-border px-3 py-2 text-sm">
-        <summary className="cursor-pointer text-muted-foreground">Try it on this PC first</summary>
-        <div className="mt-3 space-y-3">
-          <p className="text-xs text-muted-foreground">
-            Opens a second window in the same room. Move the pointer inside that window. The cursor
-            should show on the dark rectangle above, after you press Connect.
-          </p>
+        <summary
+          className="cursor-pointer text-muted-foreground"
+          title="Second window in this room"
+        >
+          Try it on this PC
+        </summary>
+        <div className="mt-3">
           <Button
             type="button"
             variant="outline"
             data-testid="open-pad"
+            title="Open a second window that joins this code"
             disabled={!codeOk}
             onClick={() =>
-              void window.api.openPad({
-                code: code.trim(),
-                relayUrl: relayUrl.trim(),
-                turnUrl: turnUrl.trim(),
-                turnUsername,
-                turnCredential
-              })
+              void window.api.openPad({ code: code.trim() })
             }
           >
             Open a test window

@@ -1,15 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { joinRoom as joinNostr } from 'trystero'
-import { joinRoom as joinRelay } from '@trystero-p2p/ws-relay'
 import { APP_ID, colorForPeer, explainLinkError, roomIdFromCode } from '../../shared/protocol'
 import type { MoveMessage, PingMessage } from '../../shared/protocol'
 
 export type LinkSettings = {
   code: string
-  relayUrl: string
-  turnUrl: string
-  turnUsername: string
-  turnCredential: string
 }
 
 export type ShownPing = {
@@ -30,7 +25,7 @@ export type ShownGhost = {
 export type LinkPhase = 'idle' | 'searching' | 'linked' | 'error'
 
 type Sender = {
-  move: (message: MoveMessage, peerId?: string) => void
+  move: (message: MoveMessage) => void
   ping: (message: PingMessage) => void
 }
 
@@ -39,42 +34,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 const IDLE_DETAIL = 'Type the same code as your friend, then press Connect.'
-
-function searchingDetail(relayUrl: string): string {
-  return relayUrl
-    ? 'Looking for your friend through the backup address…'
-    : 'Looking for your friend. They need this same code, and Connect pressed.'
-}
+const SEARCHING_DETAIL = 'Looking for your friend. They need this same code, and Connect pressed.'
 
 export type GhostLink = {
   phase: LinkPhase
   detail: string
-  peerIds: string[]
   ghosts: Record<string, ShownGhost>
   publishMove: (message: MoveMessage) => void
   publishPing: (message: PingMessage) => void
 }
 
 export function useGhostLink(active: boolean, settings: LinkSettings): GhostLink {
-  const sessionKey = active
-    ? [
-        settings.code.trim(),
-        settings.relayUrl.trim(),
-        settings.turnUrl.trim(),
-        settings.turnUsername,
-        settings.turnCredential
-      ].join('\n')
-    : ''
+  const sessionKey = active ? settings.code.trim() : ''
   const [phase, setPhase] = useState<LinkPhase>('idle')
   const [detail, setDetail] = useState(IDLE_DETAIL)
-  const [peerIds, setPeerIds] = useState<string[]>([])
   const [ghosts, setGhosts] = useState<Record<string, ShownGhost>>({})
   const [seenKey, setSeenKey] = useState(sessionKey)
   if (seenKey !== sessionKey) {
     setSeenKey(sessionKey)
     setPhase(sessionKey ? 'searching' : 'idle')
-    setDetail(sessionKey ? searchingDetail(settings.relayUrl.trim()) : IDLE_DETAIL)
-    setPeerIds([])
+    setDetail(sessionKey ? SEARCHING_DETAIL : IDLE_DETAIL)
     setGhosts({})
   }
   const sendRef = useRef<Sender | null>(null)
@@ -112,48 +91,25 @@ export function useGhostLink(active: boolean, settings: LinkSettings): GhostLink
     let disposed = false
     let leave: (() => Promise<void>) | null = null
     const code = settings.code.trim()
-    const relayUrl = settings.relayUrl.trim()
-    const turnUrl = settings.turnUrl.trim()
 
     void (async () => {
       try {
         const roomId = await roomIdFromCode(code)
         if (disposed) return
-        const turnConfig = turnUrl
-          ? [
-              {
-                urls: turnUrl,
-                username: settings.turnUsername,
-                credential: settings.turnCredential
-              }
-            ]
-          : undefined
         const onJoinError = ({ error }: { error: string }): void => {
           if (disposed) return
           setPhase('error')
           setDetail(explainLinkError(error))
         }
-        const room = relayUrl
-          ? joinRelay(
-              {
-                appId: APP_ID,
-                password: code,
-                relayConfig: { urls: [relayUrl] },
-                ...(turnConfig ? { turnConfig } : {})
-              },
-              roomId,
-              { onJoinError }
-            )
-          : joinNostr(
-              {
-                appId: APP_ID,
-                password: code,
-                relayConfig: { redundancy: 4 },
-                ...(turnConfig ? { turnConfig } : {})
-              },
-              roomId,
-              { onJoinError }
-            )
+        const room = joinNostr(
+          {
+            appId: APP_ID,
+            password: code,
+            relayConfig: { redundancy: 4 }
+          },
+          roomId,
+          { onJoinError }
+        )
         if (disposed) {
           void room.leave()
           return
@@ -165,13 +121,12 @@ export function useGhostLink(active: boolean, settings: LinkSettings): GhostLink
         const refresh = (): void => {
           if (disposed) return
           const ids = Object.keys(room.getPeers())
-          setPeerIds(ids)
           if (ids.length > 0) {
             setPhase('linked')
             setDetail('Connected. Their cursor shows once both play areas cover the game.')
-          } else if (!disposed) {
+          } else {
             setPhase('searching')
-            setDetail(searchingDetail(relayUrl))
+            setDetail(SEARCHING_DETAIL)
           }
         }
 
@@ -243,8 +198,8 @@ export function useGhostLink(active: boolean, settings: LinkSettings): GhostLink
         }
 
         sendRef.current = {
-          move: (message, peerId) => {
-            void move.send(message, peerId ? { target: peerId } : undefined)
+          move: (message) => {
+            void move.send(message)
           },
           ping: (message) => {
             void ping.send(message)
@@ -266,14 +221,7 @@ export function useGhostLink(active: boolean, settings: LinkSettings): GhostLink
       sendRef.current = null
       void leave?.()
     }
-  }, [
-    sessionKey,
-    settings.code,
-    settings.relayUrl,
-    settings.turnUrl,
-    settings.turnUsername,
-    settings.turnCredential
-  ])
+  }, [sessionKey, settings.code])
 
-  return { phase, detail, peerIds, ghosts, publishMove, publishPing }
+  return { phase, detail, ghosts, publishMove, publishPing }
 }

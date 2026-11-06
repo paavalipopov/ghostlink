@@ -1,13 +1,6 @@
 import { spawn } from 'node:child_process'
-import { createWsRelayServer } from '@trystero-p2p/ws-relay/server'
 
-const relayPort = 9077
 const code = `check-${Date.now()}`
-const relayUrl = `ws://127.0.0.1:${relayPort}`
-
-const relay = createWsRelayServer({ port: relayPort })
-await relay.ready
-console.log(`relay ready on ${relayPort}`)
 
 const child = spawn('npx', ['electron-vite', 'dev', '--', '--no-sandbox'], {
   env: { ...process.env, GHOSTLINK_DEBUG: '1' },
@@ -24,7 +17,6 @@ async function stop(code = 0) {
   } catch {
     child.kill('SIGTERM')
   }
-  await relay.close()
   process.exit(code)
 }
 
@@ -139,7 +131,6 @@ try {
     }
     setInput('[data-testid=name-input]', 'Ada')
     setInput('[data-testid=code-input]', ${JSON.stringify(code)})
-    setInput('[data-testid=relay-url]', ${JSON.stringify(relayUrl)})
     return document.querySelector('[data-testid=code-input]').value
   })()`
   )
@@ -215,13 +206,35 @@ try {
   )
   console.log(moved)
 
+  const overlay = await waitFor(
+    'overlay',
+    async () => {
+      const list = await targets()
+      return list.find((target) => target.type === 'page' && target.url.includes('overlay.html'))
+    },
+    20000
+  )
+
+  const mainLive = await waitFor(
+    'main monitor',
+    async () => {
+      const state = await evaluate(
+        pages.webSocketDebuggerUrl,
+        `document.querySelector('[data-testid=monitor]')?.dataset.state ?? ''`
+      )
+      return state === 'live' ? state : ''
+    },
+    30000
+  )
+  console.log(`main monitor ${mainLive}`)
+
   const ghost = await waitFor(
-    'ghost on the main stage',
+    'ghost on the overlay',
     async () => {
       const value = await evaluate(
-        pages.webSocketDebuggerUrl,
+        overlay.webSocketDebuggerUrl,
         `(() => {
-      const ghost = document.querySelector('[data-testid=stage-ghost]')
+      const ghost = document.querySelector('[data-testid=overlay-ghost]')
       if (!ghost) return ''
       return ghost.dataset.name + ' ' + ghost.dataset.x + ' ' + ghost.dataset.y
     })()`
@@ -259,17 +272,17 @@ try {
   )
 
   const ping = await waitFor(
-    'click ping',
+    'click color',
     async () => {
-      const count = await evaluate(
-        pages.webSocketDebuggerUrl,
-        `document.querySelectorAll('[data-testid=stage-ping]').length`
+      const flash = await evaluate(
+        overlay.webSocketDebuggerUrl,
+        `document.querySelector('[data-testid=overlay-ghost]')?.dataset.flash ?? ''`
       )
-      return count > 0 ? String(count) : ''
+      return flash === '1' ? flash : ''
     },
     5000
   )
-  console.log(`pings ${ping}`)
+  console.log(`click color ${ping}`)
 
   console.log('link check passed')
 } catch (error) {

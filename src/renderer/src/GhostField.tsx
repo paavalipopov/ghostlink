@@ -1,4 +1,5 @@
 import type { JSX } from 'react'
+import { CLICK_COLOR } from '../../shared/protocol'
 import type { ShownGhost } from './link'
 import { CursorMark } from './CursorMark'
 import './assets/marks.css'
@@ -15,23 +16,15 @@ export function GhostField({ ghosts }: { ghosts: Record<string, ShownGhost> }): 
               data-name={ghost.name}
               data-x={ghost.x}
               data-y={ghost.y}
+              data-flash={ghost.pings.length > 0 ? '1' : '0'}
               style={{ left: `${ghost.x * 100}%`, top: `${ghost.y * 100}%` }}
             >
-              <CursorMark name={ghost.name} color={ghost.color} />
+              <CursorMark
+                name={ghost.name}
+                color={ghost.pings.length > 0 ? CLICK_COLOR : ghost.color}
+              />
             </div>
           )}
-          {ghost.pings.map((ping) => (
-            <span
-              key={ping.id}
-              className="ping"
-              data-testid="stage-ping"
-              style={{
-                left: `${ping.x * 100}%`,
-                top: `${ping.y * 100}%`,
-                borderColor: ghost.color
-              }}
-            />
-          ))}
         </div>
       ))}
     </>

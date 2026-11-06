@@ -32,12 +32,8 @@ const api: GhostlinkApi = {
   setShowFrame: (show) => {
     ipcRenderer.send(CH.frame, show)
   },
-  setPanelOnTop: (on) => {
-    ipcRenderer.send(CH.ontop, on)
-  },
   hookStatus: () => ipcRenderer.invoke(CH.hook),
-  openPad: (launch: PadLaunch) => ipcRenderer.invoke(CH.pad, launch),
-  copyText: (text) => ipcRenderer.invoke(CH.copy, text)
+  openPad: (launch: PadLaunch) => ipcRenderer.invoke(CH.pad, launch)
 }
 
 if (process.contextIsolated) {

@@ -15,12 +15,6 @@ export type DisplayInfo = {
   bounds: Bounds
 }
 
-export type WindowInfo = {
-  id: string
-  title: string
-  bounds: Bounds
-}
-
 export type MoveMessage = {
   name: string
   x: number | null
@@ -56,8 +50,10 @@ export type OverlayGhost = {
   color: string
   x: number
   y: number
+  nx: number | null
+  ny: number | null
   visible: boolean
-  pings: { id: string; x: number; y: number }[]
+  flash: boolean
 }
 
 export type OverlayModel = {
@@ -73,12 +69,9 @@ export type HookStatus = {
   detail: string
 }
 
-export type WindowCapture = {
-  title: string | null
-  note: string | null
-}
-
 const PALETTE = ['#e2a14a', '#6cb6d9', '#d46a8c', '#8fbf6a', '#c7b4f0']
+
+export const CLICK_COLOR = '#f4efe6'
 
 export function colorForPeer(id: string): string {
   let hash = 0
@@ -98,7 +91,7 @@ export function explainLinkError(error: unknown): string {
     return 'The shared code does not match on both computers.'
   }
   if (/ice|turn|timed out|failed to connect/i.test(text)) {
-    return 'You found each other, but the direct path is blocked. Open “If you cannot connect” and add a TURN server.'
+    return 'You found each other, but the direct path is blocked.'
   }
   return text || 'The link failed.'
 }

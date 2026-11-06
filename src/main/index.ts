@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, screen, shell } from 'electron'
+import { app, BrowserWindow, globalShortcut, ipcMain, screen, shell } from 'electron'
 import { join } from 'path'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -13,6 +13,7 @@ import type {
 } from '../shared/protocol'
 import { windowAtPoint } from './desktop-windows'
 import { startPointerWatch } from './input'
+import { calibratePointer, physicalBounds, pointerPhysical } from './pixels'
 
 if (process.env.GHOSTLINK_DEBUG === '1') {
   app.commandLine.appendSwitch('remote-debugging-port', '9333')
@@ -27,7 +28,10 @@ let showFrame = true
 let ghosts: GhostUpdate[] = []
 let mark: MarkState = null
 let markToken = 0
-let overlayOrigin = { x: 0, y: 0 }
+let overlayDip = { x: 0, y: 0, width: 800, height: 600 }
+// Play-area numbers are Windows physical pixels. Electron's own window bounds are DIP.
+// The transparent overlay's CSS pixel is whichever of those two spaces it actually renders.
+let overlayCssIsPhysical = process.platform === 'win32'
 
 const watch = {
   current: null as ReturnType<typeof startPointerWatch> | null
@@ -37,18 +41,17 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-function virtualBounds(): Bounds {
-  const displays = screen.getAllDisplays()
-  if (displays.length === 0) return { x: 0, y: 0, width: 800, height: 600 }
+function unionBounds(rects: Bounds[]): Bounds {
+  if (rects.length === 0) return { x: 0, y: 0, width: 800, height: 600 }
   let minX = Infinity
   let minY = Infinity
   let maxX = -Infinity
   let maxY = -Infinity
-  for (const display of displays) {
-    minX = Math.min(minX, display.bounds.x)
-    minY = Math.min(minY, display.bounds.y)
-    maxX = Math.max(maxX, display.bounds.x + display.bounds.width)
-    maxY = Math.max(maxY, display.bounds.y + display.bounds.height)
+  for (const rect of rects) {
+    minX = Math.min(minX, rect.x)
+    minY = Math.min(minY, rect.y)
+    maxX = Math.max(maxX, rect.x + rect.width)
+    maxY = Math.max(maxY, rect.y + rect.height)
   }
   return {
     x: minX,
@@ -58,6 +61,54 @@ function virtualBounds(): Bounds {
   }
 }
 
+function dipVirtualBounds(): Bounds {
+  return unionBounds(screen.getAllDisplays().map((display) => display.bounds))
+}
+
+function physicalScreen(): Bounds {
+  return unionBounds(screen.getAllDisplays().map((display) => physicalBounds(display.bounds)))
+}
+
+function toOverlayPoint(point: { x: number; y: number }): { x: number; y: number } {
+  if (overlayCssIsPhysical) {
+    const origin = physicalScreen()
+    return { x: point.x - origin.x, y: point.y - origin.y }
+  }
+  const dip = screen.screenToDipPoint(point)
+  return { x: dip.x - overlayDip.x, y: dip.y - overlayDip.y }
+}
+
+function toOverlayRect(area: Bounds): Bounds {
+  if (overlayCssIsPhysical) {
+    const origin = physicalScreen()
+    return {
+      x: area.x - origin.x,
+      y: area.y - origin.y,
+      width: area.width,
+      height: area.height
+    }
+  }
+  const dip = screen.screenToDipRect(null, area)
+  return {
+    x: dip.x - overlayDip.x,
+    y: dip.y - overlayDip.y,
+    width: dip.width,
+    height: dip.height
+  }
+}
+
+async function syncOverlaySpace(): Promise<void> {
+  if (!overlay || overlay.isDestroyed()) return
+  const info = (await overlay.webContents.executeJavaScript(
+    '({ width: window.innerWidth, height: window.innerHeight })'
+  )) as { width: number; height: number }
+  const physical = physicalScreen()
+  const dipDistance = Math.abs(info.width - overlayDip.width) + Math.abs(info.height - overlayDip.height)
+  const physicalDistance =
+    Math.abs(info.width - physical.width) + Math.abs(info.height - physical.height)
+  overlayCssIsPhysical = physicalDistance <= dipDistance
+}
+
 function sendControl(channel: string, payload: unknown): void {
   if (!control || control.isDestroyed()) return
   control.webContents.send(channel, payload)
@@ -65,40 +116,34 @@ function sendControl(channel: string, payload: unknown): void {
 
 function layoutOverlay(): void {
   if (!overlay || overlay.isDestroyed()) return
-  const bounds = virtualBounds()
-  overlayOrigin = { x: bounds.x, y: bounds.y }
-  overlay.setBounds(bounds)
+  overlayDip = dipVirtualBounds()
+  overlay.setBounds(overlayDip)
 }
 
 function pushOverlay(): void {
   if (!overlay || overlay.isDestroyed()) return
-  const cursor = screen.getCursorScreenPoint()
+  const cursor = toOverlayPoint(pointerPhysical())
+  const frame = toOverlayRect(playArea)
   const model: OverlayModel = {
     showFrame,
-    frame: {
-      x: playArea.x - overlayOrigin.x,
-      y: playArea.y - overlayOrigin.y,
-      width: playArea.width,
-      height: playArea.height
-    },
+    frame,
     mark,
-    cursor: mark ? { x: cursor.x - overlayOrigin.x, y: cursor.y - overlayOrigin.y } : null,
+    cursor: mark ? cursor : null,
     ghosts: ghosts.map((ghost) => {
       const gx = ghost.x
       const gy = ghost.y
       const visible = gx != null && gy != null
-      const point = visible ? project({ x: gx, y: gy }, playArea) : { x: 0, y: 0 }
+      const point = visible ? toOverlayPoint(project({ x: gx, y: gy }, playArea)) : { x: 0, y: 0 }
       return {
         id: ghost.id,
         name: ghost.name,
         color: typeof ghost.color === 'string' ? ghost.color : '#e2a14a',
         visible,
-        x: point.x - overlayOrigin.x,
-        y: point.y - overlayOrigin.y,
-        pings: ghost.pings.map((ping) => {
-          const at = project(ping, playArea)
-          return { id: ping.id, x: at.x - overlayOrigin.x, y: at.y - overlayOrigin.y }
-        })
+        x: point.x,
+        y: point.y,
+        nx: visible ? gx : null,
+        ny: visible ? gy : null,
+        flash: ghost.pings.length > 0
       }
     })
   }
@@ -151,16 +196,14 @@ function sanitizeGhosts(value: unknown): GhostUpdate[] {
 }
 
 async function captureWindow(): Promise<void> {
-  const point = screen.dipToScreenPoint(screen.getCursorScreenPoint())
+  const point = pointerPhysical()
   const result = await windowAtPoint(point.x, point.y)
   if (!result.window) {
     publishArea(result.note)
     return
   }
   const raw = result.window
-  const origin = screen.screenToDipPoint({ x: raw.x, y: raw.y })
-  const far = screen.screenToDipPoint({ x: raw.x + raw.width, y: raw.y + raw.height })
-  playArea = { x: origin.x, y: origin.y, width: far.x - origin.x, height: far.y - origin.y }
+  playArea = { x: raw.x, y: raw.y, width: raw.width, height: raw.height }
   publishArea(result.window.title)
 }
 
@@ -176,7 +219,7 @@ async function beginMark(kind: MarkKind): Promise<void> {
   if (token !== markToken) return
   if (kind === 'window') await captureWindow()
   else {
-    playArea = applyCorner(playArea, kind, screen.getCursorScreenPoint())
+    playArea = applyCorner(playArea, kind, pointerPhysical())
     publishArea(null)
   }
   mark = null
@@ -190,12 +233,7 @@ function displays(): DisplayInfo[] {
     id: display.id,
     label: display.label || `Display ${display.id}`,
     primary: display.id === primary,
-    bounds: {
-      x: display.bounds.x,
-      y: display.bounds.y,
-      width: display.bounds.width,
-      height: display.bounds.height
-    }
+    bounds: physicalBounds(display.bounds)
   }))
 }
 
@@ -204,19 +242,25 @@ function preloadPath(): string {
 }
 
 function loadPage(win: BrowserWindow, page: string): void {
+  const splitAt = page.indexOf('?')
+  const file = splitAt === -1 ? page : page.slice(0, splitAt)
+  const search = splitAt === -1 ? '' : page.slice(splitAt + 1)
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    void win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/${page}`)
-  } else {
-    void win.loadFile(join(__dirname, '../renderer', page))
+    const base = process.env['ELECTRON_RENDERER_URL']
+    const url = new URL(file, base.endsWith('/') ? base : `${base}/`)
+    if (search) url.search = search
+    void win.loadURL(url.toString())
+    return
   }
+  void win.loadFile(join(__dirname, '../renderer', file), search ? { search } : undefined)
 }
 
 function createControl(): void {
   control = new BrowserWindow({
-    width: 440,
-    height: 980,
+    width: 420,
+    height: 760,
     minWidth: 380,
-    minHeight: 560,
+    minHeight: 520,
     show: false,
     autoHideMenuBar: true,
     title: 'Ghostlink',
@@ -230,7 +274,6 @@ function createControl(): void {
 
   control.on('ready-to-show', () => {
     control?.show()
-    control?.setAlwaysOnTop(true, 'floating')
   })
 
   control.webContents.setWindowOpenHandler((details) => {
@@ -247,13 +290,12 @@ function createControl(): void {
 }
 
 function createOverlay(): void {
-  const bounds = virtualBounds()
-  overlayOrigin = { x: bounds.x, y: bounds.y }
+  overlayDip = dipVirtualBounds()
   overlay = new BrowserWindow({
-    x: bounds.x,
-    y: bounds.y,
-    width: bounds.width,
-    height: bounds.height,
+    x: overlayDip.x,
+    y: overlayDip.y,
+    width: overlayDip.width,
+    height: overlayDip.height,
     show: false,
     frame: false,
     transparent: true,
@@ -275,27 +317,41 @@ function createOverlay(): void {
   overlay.setAlwaysOnTop(true, 'screen-saver')
   overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   overlay.on('ready-to-show', () => {
+    layoutOverlay()
     overlay?.showInactive()
-    pushOverlay()
+    void syncOverlaySpace().then(() => pushOverlay())
+  })
+  overlay.webContents.on('did-finish-load', () => {
+    void syncOverlaySpace().then(() => pushOverlay())
   })
   overlay.on('closed', () => {
     overlay = null
   })
   loadPage(overlay, 'overlay.html')
+  layoutOverlay()
+}
+
+function showPad(win: BrowserWindow): void {
+  const area = screen.getPrimaryDisplay().workArea
+  const width = 720
+  const height = 520
+  win.setBounds({
+    x: Math.round(area.x + Math.max(0, (area.width - width) / 2)),
+    y: Math.round(area.y + Math.max(0, (area.height - height) / 2)),
+    width,
+    height
+  })
+  win.setAlwaysOnTop(true, 'screen-saver')
+  win.show()
+  win.moveTop()
+  win.focus()
 }
 
 function openPad(launch: PadLaunch): void {
-  const params = new URLSearchParams({
-    code: launch.code,
-    relay: launch.relayUrl,
-    turn: launch.turnUrl,
-    turnUser: launch.turnUsername,
-    turnPass: launch.turnCredential
-  })
-  const page = `pad.html?${params.toString()}`
+  const page = `pad.html?${new URLSearchParams({ code: launch.code }).toString()}`
   if (pad && !pad.isDestroyed()) {
     loadPage(pad, page)
-    pad.focus()
+    showPad(pad)
     return
   }
   pad = new BrowserWindow({
@@ -303,6 +359,7 @@ function openPad(launch: PadLaunch): void {
     height: 520,
     minWidth: 480,
     minHeight: 360,
+    show: false,
     title: 'Ghostlink test seat',
     backgroundColor: '#141210',
     autoHideMenuBar: true,
@@ -311,6 +368,9 @@ function openPad(launch: PadLaunch): void {
       preload: preloadPath(),
       sandbox: false
     }
+  })
+  pad.on('ready-to-show', () => {
+    if (pad && !pad.isDestroyed()) showPad(pad)
   })
   pad.on('closed', () => {
     pad = null
@@ -324,12 +384,7 @@ function registerIpc(): void {
   ipcMain.handle(CH.playUseDisplay, (_event, id: number) => {
     const display = screen.getAllDisplays().find((item) => item.id === id)
     if (!display) return null
-    playArea = {
-      x: display.bounds.x,
-      y: display.bounds.y,
-      width: display.bounds.width,
-      height: display.bounds.height
-    }
+    playArea = physicalBounds(display.bounds)
     publishArea(null)
     return playArea
   })
@@ -346,16 +401,7 @@ function registerIpc(): void {
   ipcMain.handle(CH.hook, () => watch.current?.status ?? { live: false, detail: 'Not ready' })
   ipcMain.handle(CH.pad, (_event, launch: PadLaunch) => {
     if (!launch || typeof launch.code !== 'string') return
-    openPad({
-      code: launch.code,
-      relayUrl: typeof launch.relayUrl === 'string' ? launch.relayUrl : '',
-      turnUrl: typeof launch.turnUrl === 'string' ? launch.turnUrl : '',
-      turnUsername: typeof launch.turnUsername === 'string' ? launch.turnUsername : '',
-      turnCredential: typeof launch.turnCredential === 'string' ? launch.turnCredential : ''
-    })
-  })
-  ipcMain.handle(CH.copy, (_event, text: string) => {
-    clipboard.writeText(String(text ?? ''))
+    openPad({ code: launch.code })
   })
   ipcMain.on(CH.ghosts, (event, payload: unknown) => {
     if (event.sender.id !== control?.webContents.id) return
@@ -367,24 +413,20 @@ function registerIpc(): void {
     showFrame = Boolean(show)
     pushOverlay()
   })
-  ipcMain.on(CH.ontop, (event, on: boolean) => {
-    if (event.sender.id !== control?.webContents.id) return
-    control?.setAlwaysOnTop(Boolean(on), 'floating')
-  })
 }
 
 function registerShortcuts(hookLive: boolean): void {
   globalShortcut.register('Control+Alt+1', () => {
-    playArea = applyCorner(playArea, 'top-left', screen.getCursorScreenPoint())
+    playArea = applyCorner(playArea, 'top-left', pointerPhysical())
     publishArea(null)
   })
   globalShortcut.register('Control+Alt+2', () => {
-    playArea = applyCorner(playArea, 'bottom-right', screen.getCursorScreenPoint())
+    playArea = applyCorner(playArea, 'bottom-right', pointerPhysical())
     publishArea(null)
   })
   if (!hookLive) {
     globalShortcut.register('Control+Alt+P', () => {
-      const normalized = normalize(screen.getCursorScreenPoint(), playArea)
+      const normalized = normalize(pointerPhysical(), playArea)
       if (!isInside(normalized)) return
       sendControl(CH.click, {
         x: quantize(normalized.x),
@@ -401,12 +443,8 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  playArea = {
-    x: screen.getPrimaryDisplay().bounds.x,
-    y: screen.getPrimaryDisplay().bounds.y,
-    width: screen.getPrimaryDisplay().bounds.width,
-    height: screen.getPrimaryDisplay().bounds.height
-  }
+  calibratePointer()
+  playArea = physicalBounds(screen.getPrimaryDisplay().bounds)
 
   registerIpc()
   createControl()

@@ -10,10 +10,6 @@ import type {
 
 export type PadLaunch = {
   code: string
-  relayUrl: string
-  turnUrl: string
-  turnUsername: string
-  turnCredential: string
 }
 
 export const CH = {
@@ -30,10 +26,8 @@ export const CH = {
   hook: 'input:hook',
   ghosts: 'overlay:ghosts',
   frame: 'overlay:frame',
-  ontop: 'panel:ontop',
   overlay: 'overlay:state',
-  pad: 'pad:open',
-  copy: 'clipboard:write'
+  pad: 'pad:open'
 } as const
 
 export type GhostlinkApi = {
@@ -50,8 +44,6 @@ export type GhostlinkApi = {
   onOverlay: (cb: (model: OverlayModel) => void) => () => void
   setGhosts: (ghosts: GhostUpdate[]) => void
   setShowFrame: (show: boolean) => void
-  setPanelOnTop: (on: boolean) => void
   hookStatus: () => Promise<HookStatus>
   openPad: (launch: PadLaunch) => Promise<void>
-  copyText: (text: string) => Promise<void>
 }

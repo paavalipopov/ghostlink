@@ -52,7 +52,3 @@ export function applyCorner(area: Bounds, corner: Corner, point: Point): Bounds 
     height: Math.max(MIN_EDGE, point.y - area.y)
   }
 }
-
-export function areaKey(area: Bounds): string {
-  return `${Math.round(area.x)},${Math.round(area.y)},${Math.round(area.width)},${Math.round(area.height)}`
-}

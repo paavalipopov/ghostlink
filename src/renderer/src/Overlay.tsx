@@ -1,5 +1,5 @@
 import { useEffect, useState, type JSX } from 'react'
-import type { MarkKind, OverlayModel } from '../../shared/protocol'
+import { CLICK_COLOR, type MarkKind, type OverlayModel } from '../../shared/protocol'
 import { CursorMark } from './CursorMark'
 import './assets/marks.css'
 
@@ -44,22 +44,22 @@ export function Overlay(): JSX.Element {
       {model?.mark && model.cursor && (
         <div className="crosshair" style={{ left: model.cursor.x, top: model.cursor.y }} />
       )}
-      {model?.ghosts.map((ghost) => (
-        <div key={ghost.id}>
-          {ghost.visible && (
-            <div className="ghost-move" style={{ left: ghost.x, top: ghost.y }}>
-              <CursorMark name={ghost.name} color={ghost.color} />
-            </div>
-          )}
-          {ghost.pings.map((ping) => (
-            <span
-              key={ping.id}
-              className="ping"
-              style={{ left: ping.x, top: ping.y, borderColor: ghost.color }}
-            />
-          ))}
-        </div>
-      ))}
+      {model?.ghosts.map((ghost) =>
+        ghost.visible ? (
+          <div
+            key={ghost.id}
+            className="ghost-move"
+            data-testid="overlay-ghost"
+            data-name={ghost.name}
+            data-x={ghost.nx ?? ''}
+            data-y={ghost.ny ?? ''}
+            data-flash={ghost.flash ? '1' : '0'}
+            style={{ left: ghost.x, top: ghost.y }}
+          >
+            <CursorMark name={ghost.name} color={ghost.flash ? CLICK_COLOR : ghost.color} />
+          </div>
+        ) : null
+      )}
     </div>
   )
 }

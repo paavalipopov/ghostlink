@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module'
-import { screen } from 'electron'
 import { isInside, normalize, quantize, type Bounds } from '../shared/coords'
 import type { HookStatus, Sample } from '../shared/protocol'
+import { pointerPhysical } from './pixels'
 
 const require = createRequire(import.meta.url)
 
@@ -25,7 +25,7 @@ function attachHook(onClick: () => void): { hook: MouseHook | null; status: Hook
       status: {
         live: true,
         detail:
-          'A left click inside the play area draws a ring on the other computer. The click still belongs to your game.'
+          'A click inside the play area changes their pointer color. The click still belongs to your game.'
       }
     }
   } catch (error) {
@@ -33,7 +33,7 @@ function attachHook(onClick: () => void): { hook: MouseHook | null; status: Hook
       hook: null,
       status: {
         live: false,
-        detail: `Click pings use Ctrl+Alt+P. ${error instanceof Error ? error.message : 'Mouse hook unavailable.'}`
+        detail: `Click color uses Ctrl+Alt+P. ${error instanceof Error ? error.message : 'Mouse hook unavailable.'}`
       }
     }
   }
@@ -53,7 +53,7 @@ export function startPointerWatch(opts: {
   let lastKey = ''
   const timer = setInterval(() => {
     const area = opts.getArea()
-    const point = screen.getCursorScreenPoint()
+    const point = pointerPhysical()
     let sample: Sample
     if (!area || area.width < 2 || area.height < 2) {
       sample = { x: 0, y: 0, inside: false }
@@ -76,7 +76,7 @@ export function startPointerWatch(opts: {
   const attached = attachHook(() => {
     const area = opts.getArea()
     if (!area) return
-    const normalized = normalize(screen.getCursorScreenPoint(), area)
+    const normalized = normalize(pointerPhysical(), area)
     if (!isInside(normalized)) return
     opts.onClick({
       x: quantize(normalized.x),

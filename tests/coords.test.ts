@@ -70,7 +70,7 @@ describe('shared code', () => {
   })
 
   it('explains a blocked direct path', () => {
-    expect(explainLinkError('ICE connection failed')).toMatch(/TURN/)
+    expect(explainLinkError('ICE connection failed')).toMatch(/direct path/)
     expect(explainLinkError('bad password')).toMatch(/shared code/)
   })
 })

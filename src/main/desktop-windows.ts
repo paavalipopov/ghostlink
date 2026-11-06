@@ -18,7 +18,6 @@ using System;
 using System.Text;
 using System.Runtime.InteropServices;
 public class GhostlinkWin {
-  public delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);
   [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
   [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT p);
@@ -26,6 +25,15 @@ public class GhostlinkWin {
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
   [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
   [DllImport("user32.dll")] public static extern int GetWindowTextLength(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+  [DllImport("shcore.dll")] public static extern int SetProcessDpiAwareness(int awareness);
+  public static void EnableDpi() {
+    try {
+      if (SetProcessDpiAwareness(2) != 0) SetProcessDPIAware();
+    } catch {
+      try { SetProcessDPIAware(); } catch { }
+    }
+  }
   public static string Line(IntPtr h) {
     if (h == IntPtr.Zero) return "";
     int len = GetWindowTextLength(h);
@@ -39,6 +47,7 @@ public class GhostlinkWin {
     return h.ToInt64() + "\t" + r.Left + "\t" + r.Top + "\t" + w + "\t" + ht + "\t" + title;
   }
   public static string At(int x, int y) {
+    EnableDpi();
     IntPtr h = WindowFromPoint(new POINT { X = x, Y = y });
     if (h == IntPtr.Zero) return "";
     IntPtr root = GetAncestor(h, 2);
