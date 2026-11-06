@@ -8,7 +8,13 @@ import {
   rectBetween
 } from '../src/shared/coords'
 import { parseWindowRow } from '../src/shared/parse-windows'
-import { explainLinkError, roomIdFromCode } from '../src/shared/protocol'
+import {
+  codeIsStrong,
+  explainLinkError,
+  makeCode,
+  roomIdFromCode,
+  unitPoint
+} from '../src/shared/protocol'
 
 describe('play area coordinates', () => {
   const area = { x: 100, y: 50, width: 200, height: 100 }
@@ -83,6 +89,23 @@ describe('shared code', () => {
     expect(first).toBe(second)
     expect(first).not.toBe(other)
     expect(first).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it('makes a code long enough to paste, and rejects a short one', () => {
+    const code = makeCode()
+    expect(code).toMatch(/^[0-9abcdefghjkmnpqrstvwxyz]{4}(?:-[0-9abcdefghjkmnpqrstvwxyz]{4}){4}$/)
+    expect(code.replace(/-/g, '')).toHaveLength(20)
+    expect(codeIsStrong(code)).toBe(true)
+    expect(codeIsStrong('amber-harbor-42')).toBe(false)
+    expect(codeIsStrong('short')).toBe(false)
+  })
+
+  it('ignores a point that is not inside the frame', () => {
+    expect(unitPoint(0.2, 0.4)).toEqual({ x: 0.2, y: 0.4 })
+    expect(unitPoint(1.2, 0.4)).toBeNull()
+    expect(unitPoint(Number.NaN, 0)).toBeNull()
+    expect(unitPoint(Number.POSITIVE_INFINITY, 0.2)).toBeNull()
+    expect(unitPoint(null, null)).toBeNull()
   })
 
   it('explains a blocked direct path', () => {

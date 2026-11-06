@@ -1,11 +1,25 @@
-import { useEffect, useRef, useState, type JSX } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type JSX } from 'react'
 import type { Bounds } from '../../shared/coords'
-import type { DisplayInfo } from '../../shared/protocol'
+import {
+  ERROR_COLOR,
+  IDLE_RING,
+  LIVE_COLOR,
+  codeIsStrong,
+  makeCode,
+  makePingId,
+  type DisplayInfo
+} from '../../shared/protocol'
 import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
-import { Label } from '@renderer/components/ui/label'
-import { Switch } from '@renderer/components/ui/switch'
 import { useGhostLink, type LinkPhase, type LinkSettings } from './link'
+import {
+  GhostMark,
+  IconDice,
+  IconBug,
+  IconDrag,
+  IconFullScreen,
+  IconWindow
+} from './icons'
 
 function stored(key: string, fallback: string): string {
   try {
@@ -23,25 +37,6 @@ function remember(key: string, value: string): void {
   }
 }
 
-const CODE_WORDS = [
-  'amber',
-  'harbor',
-  'lantern',
-  'willow',
-  'copper',
-  'meadow',
-  'pebble',
-  'sparrow',
-  'cinder',
-  'maple',
-  'river',
-  'thimble',
-  'orchid',
-  'cedar',
-  'quilt',
-  'marigold'
-]
-
 const NAMES = [
   'Ada',
   'Nico',
@@ -57,14 +52,33 @@ const NAMES = [
   'Kai'
 ]
 
-function makeCode(): string {
-  const pick = (): string => CODE_WORDS[Math.floor(Math.random() * CODE_WORDS.length)]
-  const number = Math.floor(10 + Math.random() * 90)
-  return `${pick()}-${pick()}-${number}`
-}
-
 function makeName(): string {
   return NAMES[Math.floor(Math.random() * NAMES.length)]
+}
+
+const LISTEN_MS = 60_000
+
+function displayLabel(display: DisplayInfo): string {
+  return `${display.bounds.width}×${display.bounds.height}${display.primary ? ' · main' : ''} · ${display.label}`
+}
+
+function panelWidth(items: DisplayInfo[]): number {
+  const canvas = document.createElement('canvas')
+  const pen = canvas.getContext('2d')
+  if (!pen) return 300
+  pen.font = '14px Segoe UI'
+  const text = items.reduce(
+    (max, display) => Math.max(max, pen.measureText(displayLabel(display)).width),
+    0
+  )
+  return Math.min(420, Math.max(300, Math.ceil(text) + 84))
+}
+
+function remainLabel(until: number, now: number): string {
+  const seconds = Math.min(60, Math.max(1, Math.ceil((until - now) / 1000)))
+  const minute = Math.floor(seconds / 60)
+  const rest = seconds % 60
+  return `${minute}:${rest.toString().padStart(2, '0')}`
 }
 
 function monitorState(active: boolean, phase: LinkPhase): 'idle' | 'wait' | 'live' | 'error' {
@@ -74,41 +88,73 @@ function monitorState(active: boolean, phase: LinkPhase): 'idle' | 'wait' | 'liv
   return 'wait'
 }
 
-function monitorColor(state: 'idle' | 'wait' | 'live' | 'error'): string {
-  if (state === 'live') return '#3dbe6a'
-  if (state === 'wait') return '#e2a14a'
-  if (state === 'error') return '#d4654a'
-  return '#5c564c'
-}
-
 function monitorTitle(state: 'idle' | 'wait' | 'live' | 'error', detail: string): string {
   if (state === 'live') return 'Connected'
-  if (state === 'wait') return 'Waiting for the other computer'
+  if (state === 'wait') return 'Connecting'
   if (state === 'error') return detail || 'Could not connect'
-  return 'Not connected'
+  return 'Disconnected'
+}
+
+function LinkDot({
+  state,
+  title
+}: {
+  state: 'idle' | 'wait' | 'live' | 'error'
+  title: string
+}): JSX.Element {
+  if (state === 'wait') {
+    return (
+      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center">
+        <span
+          data-testid="monitor"
+          data-state={state}
+          title={title}
+          aria-label={title}
+          className="link-wait inline-block size-7 rounded-full border-2"
+        />
+      </span>
+    )
+  }
+  const color = state === 'live' ? LIVE_COLOR : state === 'error' ? ERROR_COLOR : 'transparent'
+  const border = state === 'idle' ? IDLE_RING : color
+  return (
+    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center">
+      <span
+        data-testid="monitor"
+        data-state={state}
+        title={title}
+        aria-label={title}
+        className="inline-block size-7 rounded-full border-2"
+        style={{ background: color, borderColor: border }}
+      />
+    </span>
+  )
 }
 
 function App(): JSX.Element {
   const [name, setName] = useState(() => stored('ghostlink.name', ''))
   const [code, setCode] = useState(() => stored('ghostlink.code', ''))
-  const [showFrame, setShowFrame] = useState(() => stored('ghostlink.frame', '1') !== '0')
   const [monitoring, setMonitoring] = useState(false)
+  const [listenUntil, setListenUntil] = useState<number | null>(null)
+  const [now, setNow] = useState(() => Date.now())
   const [displays, setDisplays] = useState<DisplayInfo[]>([])
   const [displayId, setDisplayId] = useState<number | null>(null)
-  const [area, setArea] = useState<Bounds | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const [marking, setMarking] = useState(false)
+  const [panelReady, setPanelReady] = useState(false)
+  const [sessionCode, setSessionCode] = useState('')
 
-  const settings: LinkSettings = { code }
+  const settings: LinkSettings = { code: sessionCode }
   const link = useGhostLink(monitoring, settings)
   const { publishMove, publishPing } = link
   const enabled = useRef(false)
-  const nameRef = useRef(name)
+  const nameRef = useRef('Friend')
+  const panelRef = useRef<HTMLElement>(null)
+  const fitted = useRef(false)
 
   useEffect(() => {
     enabled.current = monitoring
-    nameRef.current = name.trim() || 'Friend'
-  }, [monitoring, name])
+  }, [monitoring])
 
   useEffect(() => {
     const raw = stored('ghostlink.areaPx', '')
@@ -119,15 +165,17 @@ function App(): JSX.Element {
         // Ignore a damaged saved rectangle.
       }
     }
-    void window.api.getDisplays().then((items) => {
-      setDisplays(items)
-      setDisplayId(
-        (current) => current ?? items.find((item) => item.primary)?.id ?? items[0]?.id ?? null
-      )
-    })
-    void window.api.getPlayArea().then(setArea)
+    void window.api
+      .getDisplays()
+      .then((items) => {
+        setDisplays(items)
+        setDisplayId(
+          (current) => current ?? items.find((item) => item.primary)?.id ?? items[0]?.id ?? null
+        )
+      })
+      .finally(() => setPanelReady(true))
+    void window.api.setShowFrame(true)
     const offArea = window.api.onPlayArea((next) => {
-      setArea(next)
       remember('ghostlink.areaPx', JSON.stringify(next))
     })
     const offNote = window.api.onNote(setNote)
@@ -146,7 +194,7 @@ function App(): JSX.Element {
         name: nameRef.current,
         x: sample.x,
         y: sample.y,
-        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`
+        id: makePingId()
       })
     })
     return () => {
@@ -160,10 +208,14 @@ function App(): JSX.Element {
 
   useEffect(() => {
     if (!monitoring) return
-    publishMove({ name: name.trim() || 'Friend', x: null, y: null })
-  }, [monitoring, name, publishMove])
+    publishMove({ name: nameRef.current, x: null, y: null })
+  }, [monitoring, publishMove])
 
   useEffect(() => {
+    if (!monitoring) {
+      window.api.setGhosts([])
+      return
+    }
     const payload = Object.entries(link.ghosts).map(([id, ghost]) => ({
       id,
       name: ghost.name,
@@ -173,208 +225,281 @@ function App(): JSX.Element {
       pings: ghost.pings.map((ping) => ({ id: ping.id, x: ping.x, y: ping.y }))
     }))
     window.api.setGhosts(payload)
-  }, [link.ghosts])
+  }, [monitoring, link.ghosts])
 
-  useEffect(() => {
-    window.api.setShowFrame(showFrame)
-    remember('ghostlink.frame', showFrame ? '1' : '0')
-  }, [showFrame])
-
-  const codeOk = code.trim().length >= 4
+  const codeOk = codeIsStrong(code)
   const formOk = codeOk && name.trim().length > 0
   const linked = monitoring && link.phase === 'linked'
   const dot = monitorState(monitoring, link.phase)
   const dotTitle = monitorTitle(dot, link.detail)
 
-  return (
-    <main className="mx-auto flex h-full max-w-md flex-col gap-5 overflow-y-auto px-4 py-5">
-      <h1 className="text-center text-3xl font-semibold tracking-tight">Ghostlink</h1>
+  useEffect(() => {
+    window.api.setLinked(linked)
+  }, [linked])
 
-      <section className="space-y-3 rounded-lg border border-border bg-card p-3">
-        <h2 className="text-center text-base font-medium">Sync</h2>
-        <div className="space-y-1.5">
-          <Label htmlFor="name">Name</Label>
-          <div className="flex gap-2">
-            <Input
-              id="name"
-              className="min-w-0 flex-1"
-              data-testid="name-input"
-              value={name}
-              placeholder="Name"
-              onChange={(event) => {
-                setName(event.target.value)
-                remember('ghostlink.name', event.target.value)
-              }}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              data-testid="random-name"
-              title="Pick a name"
-              onClick={() => {
-                const next = makeName()
-                setName(next)
-                remember('ghostlink.name', next)
-              }}
-            >
-              Random
-            </Button>
-          </div>
+  useEffect(() => {
+    if (!monitoring || linked) setListenUntil(null)
+  }, [monitoring, linked])
+
+  useEffect(() => {
+    if (listenUntil == null) return
+    const tick = (): void => {
+      const remaining = listenUntil - Date.now()
+      if (remaining <= 0) {
+        setListenUntil(null)
+        setMonitoring(false)
+        return
+      }
+      setNow(Date.now())
+    }
+    tick()
+    const timer = setInterval(tick, 200)
+    return () => clearInterval(timer)
+  }, [listenUntil])
+
+  const [layoutWidth, setLayoutWidth] = useState(300)
+  const [layoutReady, setLayoutReady] = useState(false)
+  const [zoom, setZoom] = useState(1)
+  useLayoutEffect(() => {
+    if (!panelReady) return
+    let cancel = false
+    void document.fonts.ready.then(() => {
+      if (cancel) return
+      setLayoutWidth(panelWidth(displays))
+      setLayoutReady(true)
+    })
+    return () => {
+      cancel = true
+    }
+  }, [panelReady, displays])
+
+  useLayoutEffect(() => {
+    if (!layoutReady || fitted.current) return
+    const node = panelRef.current
+    if (!node) return
+    const rect = node.getBoundingClientRect()
+    const width = Math.ceil(rect.width)
+    const height = Math.ceil(rect.height)
+    if (width < 240 || height < 200) return
+    fitted.current = true
+    window.api.fitWindow({ width, height })
+    const started = window.setInterval(() => {
+      const gapW = window.innerWidth / width
+      const gapH = window.innerHeight / height
+      if (Math.abs(gapW - gapH) > 0.04 || Math.min(gapW, gapH) < 0.98) return
+      window.clearInterval(started)
+      const gap = Math.min(gapW, gapH)
+      if (gap > 1.04) setZoom(Math.round(gap * 100) / 100)
+    }, 30)
+    window.setTimeout(() => window.clearInterval(started), 1000)
+  }, [layoutReady, layoutWidth])
+
+  const chosen = displays.find((item) => item.id === displayId)
+  const displayTitle = chosen ? displayLabel(chosen) : 'Screen the game is on'
+
+  const beginListen = (): void => {
+    nameRef.current = name.trim() || 'Friend'
+    setSessionCode(code.trim())
+    const started = Date.now()
+    setNow(started)
+    setListenUntil(started + LISTEN_MS)
+    setMonitoring(true)
+  }
+
+  return (
+    <main
+      ref={panelRef}
+      className="box-border flex flex-col gap-2.5 px-3 py-3"
+      style={{ width: layoutWidth, zoom } as CSSProperties}
+    >
+      <header className="flex items-center justify-center gap-2">
+        <GhostMark />
+        <h1 className="text-2xl font-semibold tracking-tight">Ghostlink</h1>
+      </header>
+
+      <div className="flex items-center gap-2">
+        <div className="relative min-w-0 flex-1">
+          <Input
+            id="name"
+            className="pr-8"
+            data-testid="name-input"
+            value={name}
+            placeholder="username"
+            aria-label="username"
+            onChange={(event) => {
+              setName(event.target.value)
+              remember('ghostlink.name', event.target.value)
+            }}
+          />
+          <button
+            type="button"
+            data-testid="random-name"
+            title="Pick a name"
+            aria-label="Pick a name"
+            className="absolute inset-y-0 right-0 flex w-8 items-center justify-center border-0 bg-transparent p-0 text-muted-foreground hover:text-foreground focus-visible:outline-none"
+            onClick={() => {
+              const next = makeName()
+              setName(next)
+              remember('ghostlink.name', next)
+            }}
+          >
+            <IconDice />
+          </button>
         </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="code">Code</Label>
-          <div className="flex gap-2">
-            <Input
-              id="code"
-              className="min-w-0 flex-1"
-              data-testid="code-input"
-              value={code}
-              placeholder="amber-harbor-42"
-              onChange={(event) => {
-                setCode(event.target.value)
-                remember('ghostlink.code', event.target.value)
-                setMonitoring(false)
-              }}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              data-testid="new-code"
-              title="Make a code and wait for the other computer"
-              onClick={() => {
-                const next = makeCode()
-                setCode(next)
-                remember('ghostlink.code', next)
-                setMonitoring(true)
-              }}
-            >
-              New code
-            </Button>
-          </div>
-        </div>
-        <Button
+        <LinkDot state={dot} title={dotTitle} />
+      </div>
+
+      <div className="relative">
+        <Input
+          id="code"
+          className="pr-8"
+          data-testid="code-input"
+          value={code}
+          placeholder="secret"
+          aria-label="secret"
+          onChange={(event) => {
+            setCode(event.target.value)
+            remember('ghostlink.code', event.target.value)
+          }}
+        />
+        <button
           type="button"
-          className="group w-full"
-          data-testid="connect"
-          title={linked ? 'Disconnect' : 'Paste their code, then connect'}
-          aria-label={linked ? 'Disconnect' : 'Connect'}
-          disabled={!linked && (!formOk || (monitoring && link.phase !== 'error'))}
+          data-testid="new-code"
+          title="Make a code"
+          aria-label="Make a code"
+          className="absolute inset-y-0 right-0 flex w-8 items-center justify-center border-0 bg-transparent p-0 text-muted-foreground hover:text-foreground focus-visible:outline-none"
           onClick={() => {
-            if (linked) {
-              setMonitoring(false)
-              return
-            }
-            if (monitoring && link.phase === 'error') {
-              setMonitoring(false)
-              queueMicrotask(() => setMonitoring(true))
-              return
-            }
-            setMonitoring(true)
+            const next = makeCode()
+            setCode(next)
+            remember('ghostlink.code', next)
           }}
         >
-          {linked ? (
-            <>
-              <span className="group-hover:hidden">Connected</span>
-              <span className="hidden group-hover:inline">Disconnect</span>
-            </>
-          ) : (
-            'Connect'
-          )}
-        </Button>
-        <div className="flex justify-center">
-          <span
-            data-testid="monitor"
-            data-state={dot}
-            data-phase={link.phase}
-            title={dotTitle}
-            aria-label={dotTitle}
-            className="inline-block size-2.5 rounded-full"
-            style={{ background: monitorColor(dot) }}
-          />
-        </div>
-      </section>
+          <IconDice />
+        </button>
+      </div>
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-medium">Frame</h2>
-        <Label htmlFor="display">Display</Label>
+      <Button
+        type="button"
+        className="group w-full bg-[#3dbe6a] text-[#1a140c] hover:bg-[#349e59]"
+        data-testid="connect"
+        data-mode={linked ? 'live' : monitoring ? 'listen' : 'idle'}
+        title={
+          linked
+            ? 'Disconnect'
+            : monitoring
+              ? 'Stop waiting'
+              : 'Connect with this code for one minute'
+        }
+        aria-label={linked || monitoring ? 'Disconnect' : 'Connect'}
+        disabled={!monitoring && !formOk}
+        onClick={() => {
+          if (monitoring) {
+            setMonitoring(false)
+            return
+          }
+          beginListen()
+        }}
+      >
+        {linked ? (
+          <>
+            <span className="group-hover:hidden">Connected</span>
+            <span className="hidden group-hover:inline">Disconnect</span>
+          </>
+        ) : monitoring ? (
+          <>
+            <span>Disconnect</span>
+            {listenUntil != null && (
+              <span data-testid="countdown" className="tabular-nums">
+                {remainLabel(listenUntil, now)}
+              </span>
+            )}
+          </>
+        ) : (
+          'Connect'
+        )}
+      </Button>
+
+      <div data-testid="section-rule" className="h-px bg-[#8a8378]" />
+
+      <section className="space-y-2.5">
+        <h2 className="text-center text-sm font-medium">Shared display</h2>
         <select
           id="display"
-          title="Screen the game is on"
+          aria-label="Shared display"
+          title={displayTitle}
           className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
           value={displayId ?? ''}
           onChange={(event) => setDisplayId(Number(event.target.value))}
         >
           {displays.map((display) => (
             <option key={display.id} value={display.id}>
-              {display.label}
-              {display.primary ? ' (main)' : ''} · {display.bounds.width}×{display.bounds.height}
+              {displayLabel(display)}
             </option>
           ))}
         </select>
-        <div className="flex flex-wrap gap-2">
+        <div className="grid grid-cols-2 gap-1.5">
           <Button
             type="button"
             variant="secondary"
+            className="px-2"
             title="Frame this whole display"
             disabled={displayId == null || marking}
+            data-testid="full-screen"
             onClick={() => {
               if (displayId == null) return
               void window.api.useDisplay(displayId)
             }}
           >
-            The game fills this screen
+            <IconFullScreen />
+            Full Screen
           </Button>
           <Button
             type="button"
             variant="secondary"
+            className="px-2"
+            data-testid="drag-frame"
+            title="Click and drag across to select a custom rectangular frame."
+            disabled={displayId == null || marking}
+            onClick={() => {
+              if (displayId == null) return
+              void window.api.pickFrame(displayId)
+            }}
+          >
+            <IconDrag />
+            Drag frame
+          </Button>
+        </div>
+        <div className="flex gap-1.5">
+          <Button
+            type="button"
+            variant="secondary"
+            className="min-w-0 flex-1 px-2"
             title="Point at the game, then click. The frame matches that window."
             disabled={marking}
             data-testid="mark-window"
             onClick={() => void window.api.mark('window')}
           >
-            The window under my mouse
+            <IconWindow />
+            Target window
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            className="size-9 shrink-0 rounded-full border border-border px-0"
+            style={{ background: 'var(--background)', color: 'var(--foreground)' }}
+            data-testid="open-pad"
+            title="Test run"
+            aria-label="Test run"
+            disabled={!codeOk}
+            onClick={() => void window.api.openPad({ code: code.trim() })}
+          >
+            <IconBug />
           </Button>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          data-testid="drag-frame"
-          title="Click and drag across a screenshot. The frame is the rectangle between those two points."
-          disabled={displayId == null || marking}
-          onClick={() => {
-            if (displayId == null) return
-            void window.api.pickFrame(displayId)
-          }}
-        >
-          Drag the frame
-        </Button>
-        <p data-testid="play-area" className="text-xs text-muted-foreground">
-          {marking
-            ? note || 'Move the pointer, then hold still.'
-            : area
-              ? `${Math.round(area.width)} × ${Math.round(area.height)} at ${Math.round(area.x)}, ${Math.round(area.y)}${note ? ` · ${note}` : ''}`
-              : 'Waiting for a display.'}
+        <p data-testid="play-area" className="min-h-4 text-xs text-muted-foreground">
+          {marking ? note || 'Move the pointer, then hold still.' : note}
         </p>
-        <div className="flex items-center justify-between gap-3" title="Show or hide the frame">
-          <Label htmlFor="frame">Show the outline</Label>
-          <Switch id="frame" checked={showFrame} onCheckedChange={setShowFrame} />
-        </div>
       </section>
-
-      <div className="flex justify-center">
-        <Button
-          type="button"
-          variant="ghost"
-          className="border border-border"
-          style={{ background: 'var(--background)', color: 'var(--foreground)' }}
-          data-testid="open-pad"
-          title="Open a second window that joins this code"
-          disabled={!codeOk}
-          onClick={() => void window.api.openPad({ code: code.trim() })}
-        >
-          Test run
-        </Button>
-      </div>
     </main>
   )
 }

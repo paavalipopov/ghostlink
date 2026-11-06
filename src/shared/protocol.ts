@@ -92,6 +92,43 @@ const PALETTE = ['#e2a14a', '#6cb6d9', '#d46a8c', '#8fbf6a', '#c7b4f0']
 
 export const CLICK_COLOR = '#f4efe6'
 export const CLICK_MS = 1000
+export const LIVE_COLOR = '#3dbe6a'
+export const ERROR_COLOR = '#d4654a'
+export const WAIT_COLOR = '#e2a14a'
+export const IDLE_RING = '#a8a092'
+export const MAX_PEERS = 8
+export const MAX_PINGS = 4
+export const MAX_PING_ID = 64
+
+export function makePingId(): string {
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+const CODE_ALPHABET = '0123456789abcdefghjkmnpqrstvwxyz'
+
+export function makeCode(): string {
+  const bytes = new Uint8Array(13)
+  crypto.getRandomValues(bytes)
+  let bits = 0n
+  for (const byte of bytes) bits = (bits << 8n) | BigInt(byte)
+  let raw = ''
+  for (let i = 0; i < 20; i++) {
+    const shift = BigInt(99 - i * 5)
+    raw += CODE_ALPHABET[Number((bits >> shift) & 31n)]
+  }
+  return [0, 4, 8, 12, 16].map((start) => raw.slice(start, start + 4)).join('-')
+}
+
+export function codeIsStrong(code: string): boolean {
+  return code.trim().replace(/[\s-]/g, '').length >= 16
+}
+
+export function unitPoint(x: unknown, y: unknown): { x: number; y: number } | null {
+  if (typeof x !== 'number' || typeof y !== 'number') return null
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null
+  if (x < 0 || x > 1 || y < 0 || y > 1) return null
+  return { x, y }
+}
 
 export function colorForPeer(id: string): string {
   let hash = 0

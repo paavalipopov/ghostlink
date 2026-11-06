@@ -1,5 +1,4 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
 import { CH, type GhostlinkApi, type PadLaunch } from '../shared/bridge'
 import type { Bounds } from '../shared/coords'
 import type { FramePick, GhostUpdate } from '../shared/protocol'
@@ -35,20 +34,14 @@ const api: GhostlinkApi = {
   setShowFrame: (show) => {
     ipcRenderer.send(CH.frame, show)
   },
+  setLinked: (linked) => {
+    ipcRenderer.send(CH.linked, linked)
+  },
+  fitWindow: (size) => {
+    ipcRenderer.send(CH.fit, size)
+  },
   hookStatus: () => ipcRenderer.invoke(CH.hook),
   openPad: (launch: PadLaunch) => ipcRenderer.invoke(CH.pad, launch)
 }
 
-if (process.contextIsolated) {
-  try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('api', api)
-  } catch (error) {
-    console.error(error)
-  }
-} else {
-  // @ts-expect-error window is augmented in the renderer
-  window.electron = electronAPI
-  // @ts-expect-error window is augmented in the renderer
-  window.api = api
-}
+contextBridge.exposeInMainWorld('api', api)

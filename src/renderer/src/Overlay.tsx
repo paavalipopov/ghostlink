@@ -31,7 +31,16 @@ export function Overlay(): JSX.Element {
     if (!model?.picking) {
       origin.current = null
       setDraft(null)
+      return
     }
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      origin.current = null
+      setDraft(null)
+      void window.api.finishPick(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
   }, [model?.picking])
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>): void => {
@@ -52,12 +61,19 @@ export function Overlay(): JSX.Element {
     origin.current = null
     setDraft(null)
     if (!start || !model?.picking) return
+    const rect = event.currentTarget.getBoundingClientRect()
+    if (rect.width < 1 || rect.height < 1) {
+      void window.api.finishPick(null)
+      return
+    }
+    const fraction = (value: number, origin: number, size: number): number =>
+      (value - origin) / size
     void window.api.finishPick({
       space: 'overlay',
-      x1: start.x,
-      y1: start.y,
-      x2: event.clientX,
-      y2: event.clientY
+      x1: fraction(start.x, rect.left, rect.width),
+      y1: fraction(start.y, rect.top, rect.height),
+      x2: fraction(event.clientX, rect.left, rect.width),
+      y2: fraction(event.clientY, rect.top, rect.height)
     })
   }
 
@@ -103,7 +119,7 @@ export function Overlay(): JSX.Element {
       )}
       {model?.picking && (
         <div className="mark-banner" data-testid="pick-banner">
-          <div>Drag across the picture, then release.</div>
+          <div>Drag across the picture, then release. Escape cancels.</div>
         </div>
       )}
       {model?.mark && model.cursor && (

@@ -8,12 +8,12 @@ A ghost pointer for two people playing the same point-and-click game on two Wind
 
 On both PCs:
 
-1. Type a name, or click **Random**.
-2. One person clicks **New code**. The code appears, and the dot under **Connect** waits. Send that code in any chat.
-3. The other person pastes the code and clicks **Connect**.
+1. Type a username, or click the dice in that field.
+2. One person clicks the dice in the secret field. A code appears. Send that code in any chat.
+3. Both people click **Connect** within about a minute. Either side can go first. The button shows Disconnect and a countdown while it listens. Disconnect cancels the wait. If the minute ends with nobody else there, it returns to Connect.
 4. The dot turns green on both PCs. Name and code stay filled in.
 5. Start the game in a window. Exclusive fullscreen hides the cursor.
-6. Put the pointer over the game and click **The window under my mouse**. Do this on both computers, on the same game picture.
+6. Put the pointer over the game and click **Target window**. Do this on both computers, on the same game picture.
 7. Their cursor appears on your screen. A click blinks it.
 
 ## Limits

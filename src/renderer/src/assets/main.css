@@ -52,3 +52,20 @@ body {
   color: var(--foreground);
   font-family: 'Segoe UI', ui-sans-serif, system-ui, sans-serif;
 }
+
+.link-wait {
+  animation: link-wait 1s steps(2, end) infinite;
+}
+
+@keyframes link-wait {
+  0%,
+  40% {
+    background: #3dbe6a;
+    border-color: #3dbe6a;
+  }
+  50%,
+  100% {
+    background: transparent;
+    border-color: #a8a092;
+  }
+}

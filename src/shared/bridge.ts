@@ -30,8 +30,10 @@ export const CH = {
   hook: 'input:hook',
   ghosts: 'overlay:ghosts',
   frame: 'overlay:frame',
+  linked: 'link:live',
   overlay: 'overlay:state',
-  pad: 'pad:open'
+  pad: 'pad:open',
+  fit: 'window:fit'
 } as const
 
 export type GhostlinkApi = {
@@ -51,6 +53,8 @@ export type GhostlinkApi = {
   onOverlay: (cb: (model: OverlayModel) => void) => () => void
   setGhosts: (ghosts: GhostUpdate[]) => void
   setShowFrame: (show: boolean) => void
+  setLinked: (linked: boolean) => void
+  fitWindow: (size: { width: number; height: number }) => void
   hookStatus: () => Promise<HookStatus>
   openPad: (launch: PadLaunch) => Promise<void>
 }

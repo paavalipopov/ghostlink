@@ -3,9 +3,13 @@ import { joinRoom as joinNostr } from 'trystero'
 import {
   APP_ID,
   CLICK_MS,
+  MAX_PEERS,
+  MAX_PING_ID,
+  MAX_PINGS,
   colorForPeer,
   explainLinkError,
-  roomIdFromCode
+  roomIdFromCode,
+  unitPoint
 } from '../../shared/protocol'
 import type { MoveMessage, PingMessage } from '../../shared/protocol'
 
@@ -96,7 +100,7 @@ export function useGhostLink(active: boolean, settings: LinkSettings): GhostLink
 
     let disposed = false
     let leave: (() => Promise<void>) | null = null
-    const code = settings.code.trim()
+    const code = sessionKey
 
     void (async () => {
       try {
@@ -106,6 +110,7 @@ export function useGhostLink(active: boolean, settings: LinkSettings): GhostLink
           if (disposed) return
           setPhase('error')
           setDetail(explainLinkError(error))
+          setGhosts({})
         }
         const room = joinNostr(
           {
@@ -139,17 +144,17 @@ export function useGhostLink(active: boolean, settings: LinkSettings): GhostLink
         move.onMessage = (message, { peerId }) => {
           if (disposed || !isRecord(message)) return
           const name = typeof message.name === 'string' ? message.name.slice(0, 40) : 'Friend'
-          const x = typeof message.x === 'number' ? message.x : null
-          const y = typeof message.y === 'number' ? message.y : null
+          const placed = unitPoint(message.x, message.y)
           setGhosts((current) => {
+            if (!current[peerId] && Object.keys(current).length >= MAX_PEERS) return current
             const prev = current[peerId]
             return {
               ...current,
               [peerId]: {
                 name,
                 color: prev?.color ?? colorForPeer(peerId),
-                x,
-                y,
+                x: placed ? placed.x : null,
+                y: placed ? placed.y : null,
                 pings: prev?.pings ?? []
               }
             }
@@ -157,17 +162,16 @@ export function useGhostLink(active: boolean, settings: LinkSettings): GhostLink
         }
 
         ping.onMessage = (message, { peerId }) => {
-          if (
-            disposed ||
-            !isRecord(message) ||
-            typeof message.x !== 'number' ||
-            typeof message.y !== 'number'
-          ) {
-            return
-          }
+          if (disposed || !isRecord(message)) return
+          const placed = unitPoint(message.x, message.y)
+          if (!placed) return
           const name = typeof message.name === 'string' ? message.name.slice(0, 40) : 'Friend'
-          const id = typeof message.id === 'string' ? message.id : `${Date.now()}`
+          const id = (typeof message.id === 'string' ? message.id : `${Date.now()}`).slice(
+            0,
+            MAX_PING_ID
+          )
           setGhosts((current) => {
+            if (!current[peerId] && Object.keys(current).length >= MAX_PEERS) return current
             const prev = current[peerId] ?? {
               name,
               color: colorForPeer(peerId),
@@ -180,10 +184,9 @@ export function useGhostLink(active: boolean, settings: LinkSettings): GhostLink
               [peerId]: {
                 ...prev,
                 name,
-                pings: [
-                  ...prev.pings,
-                  { id, x: message.x as number, y: message.y as number, at: Date.now() }
-                ]
+                pings: [...prev.pings, { id, x: placed.x, y: placed.y, at: Date.now() }].slice(
+                  -MAX_PINGS
+                )
               }
             }
           })
@@ -218,16 +221,20 @@ export function useGhostLink(active: boolean, settings: LinkSettings): GhostLink
         if (!disposed) {
           setPhase('error')
           setDetail(explainLinkError(error))
+          setGhosts({})
         }
       }
     })()
 
     return () => {
       disposed = true
+      const bye = lastMove.current
+      if (bye) sendRef.current?.move({ name: bye.name, x: null, y: null })
       sendRef.current = null
+      setGhosts({})
       void leave?.()
     }
-  }, [sessionKey, settings.code])
+  }, [sessionKey])
 
   return { phase, detail, ghosts, publishMove, publishPing }
 }

@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState, type JSX, type PointerEvent } from 'react'
 import { quantize } from '../../shared/coords'
-import { CLICK_MS } from '../../shared/protocol'
+import {
+  CLICK_MS,
+  ERROR_COLOR,
+  LIVE_COLOR,
+  WAIT_COLOR,
+  codeIsStrong,
+  makePingId
+} from '../../shared/protocol'
 import { CursorMark } from './CursorMark'
 import { GhostField } from './GhostField'
 import { useGhostLink } from './link'
@@ -20,7 +27,7 @@ export function Pad(): JSX.Element {
   const params = new URLSearchParams(window.location.search)
   const code = params.get('code') ?? ''
   const settings = { code }
-  const ready = code.trim().length >= 4
+  const ready = codeIsStrong(code)
   const link = useGhostLink(ready, settings)
   const { publishMove, publishPing } = link
   const [local, setLocal] = useState<{ x: number; y: number } | null>(null)
@@ -28,7 +35,7 @@ export function Pad(): JSX.Element {
   const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const armClick = (): string => {
-    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`
+    const id = makePingId()
     setClickKey(id)
     if (clickTimer.current) clearTimeout(clickTimer.current)
     clickTimer.current = setTimeout(() => {
@@ -62,7 +69,7 @@ export function Pad(): JSX.Element {
           className="inline-block size-2.5 rounded-full"
           style={{
             background:
-              link.phase === 'linked' ? '#3dbe6a' : link.phase === 'error' ? '#d4654a' : '#e2a14a'
+              link.phase === 'linked' ? LIVE_COLOR : link.phase === 'error' ? ERROR_COLOR : WAIT_COLOR
           }}
         />
       </header>

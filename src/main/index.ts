@@ -12,27 +12,23 @@ import { join } from 'path'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { CH, type PadLaunch } from '../shared/bridge'
+import { applyCorner, isInside, normalize, project, quantize, type Bounds } from '../shared/coords'
 import {
-  applyCorner,
-  isInside,
-  normalize,
-  project,
-  quantize,
-  rectBetween,
-  type Bounds,
-  type Point
-} from '../shared/coords'
-import type {
-  DisplayInfo,
-  FramePick,
-  GhostUpdate,
-  MarkKind,
-  MarkState,
-  OverlayModel
+  MAX_PEERS,
+  MAX_PING_ID,
+  MAX_PINGS,
+  unitPoint,
+  type DisplayInfo,
+  type FramePick,
+  type GhostUpdate,
+  type MarkKind,
+  type MarkState,
+  type OverlayModel
 } from '../shared/protocol'
 import { windowAtPoint } from './desktop-windows'
 import { startPointerWatch } from './input'
 import { calibratePointer, physicalBounds, pointerPhysical } from './pixels'
+import { ensureWin32, stopWin32 } from './win32'
 
 if (process.env.GHOSTLINK_DEBUG === '1') {
   app.commandLine.appendSwitch('remote-debugging-port', '9333')
@@ -44,6 +40,7 @@ let overlay: BrowserWindow | null = null
 let pad: BrowserWindow | null = null
 let playArea: Bounds = { x: 0, y: 0, width: 800, height: 600 }
 let showFrame = true
+let shareSamples = false
 let ghosts: GhostUpdate[] = []
 let mark: MarkState = null
 let markToken = 0
@@ -52,6 +49,7 @@ let gesture = false
 let picker: BrowserWindow | null = null
 let pendingShot: { displayId: number; image: string } | null = null
 let pickWait: ((pick: FramePick | null) => void) | null = null
+let framedDisplay: Display | null = null
 let overlayDip = { x: 0, y: 0, width: 800, height: 600 }
 // Play-area numbers are Windows physical pixels. Electron's own window bounds are DIP.
 // The transparent overlay's CSS pixel is whichever of those two spaces it actually renders.
@@ -123,15 +121,26 @@ function toOverlayRect(area: Bounds): Bounds {
 
 async function syncOverlaySpace(): Promise<void> {
   if (!overlay || overlay.isDestroyed()) return
-  const info = (await overlay.webContents.executeJavaScript(
-    '({ width: window.innerWidth, height: window.innerHeight })'
-  )) as { width: number; height: number }
-  const physical = physicalScreen()
-  const dipDistance =
-    Math.abs(info.width - overlayDip.width) + Math.abs(info.height - overlayDip.height)
-  const physicalDistance =
-    Math.abs(info.width - physical.width) + Math.abs(info.height - physical.height)
-  overlayCssIsPhysical = physicalDistance <= dipDistance
+  for (let attempt = 0; attempt < 12; attempt++) {
+    let info: { width: number; height: number }
+    try {
+      info = (await overlay.webContents.executeJavaScript(
+        '({ width: window.innerWidth, height: window.innerHeight })'
+      )) as { width: number; height: number }
+    } catch {
+      return
+    }
+    const physical = physicalScreen()
+    const dipDistance =
+      Math.abs(info.width - overlayDip.width) + Math.abs(info.height - overlayDip.height)
+    const physicalDistance =
+      Math.abs(info.width - physical.width) + Math.abs(info.height - physical.height)
+    if (Math.min(dipDistance, physicalDistance) <= 48) {
+      overlayCssIsPhysical = physicalDistance < dipDistance
+      return
+    }
+    await delay(40)
+  }
 }
 
 function sendControl(channel: string, payload: unknown): void {
@@ -201,22 +210,24 @@ function sanitizeGhosts(value: unknown): GhostUpdate[] {
     if (!item || typeof item !== 'object') continue
     const ghost = item as GhostUpdate
     if (typeof ghost.id !== 'string' || typeof ghost.name !== 'string') continue
-    const x = typeof ghost.x === 'number' && Number.isFinite(ghost.x) ? ghost.x : null
-    const y = typeof ghost.y === 'number' && Number.isFinite(ghost.y) ? ghost.y : null
+    if (next.length >= MAX_PEERS) break
+    const placed = unitPoint(ghost.x, ghost.y)
     const pings = Array.isArray(ghost.pings)
-      ? ghost.pings.flatMap((ping) => {
-          if (!ping || typeof ping.id !== 'string') return []
-          if (typeof ping.x !== 'number' || typeof ping.y !== 'number') return []
-          if (!Number.isFinite(ping.x) || !Number.isFinite(ping.y)) return []
-          return [{ id: ping.id, x: ping.x, y: ping.y }]
-        })
+      ? ghost.pings
+          .flatMap((ping) => {
+            if (!ping || typeof ping.id !== 'string') return []
+            const point = unitPoint(ping.x, ping.y)
+            if (!point) return []
+            return [{ id: ping.id.slice(0, MAX_PING_ID), x: point.x, y: point.y }]
+          })
+          .slice(0, MAX_PINGS)
       : []
     next.push({
       id: ghost.id,
       name: ghost.name.slice(0, 40),
       color: typeof ghost.color === 'string' ? ghost.color : '#e2a14a',
-      x,
-      y,
+      x: placed ? placed.x : null,
+      y: placed ? placed.y : null,
       pings
     })
   }
@@ -225,14 +236,20 @@ function sanitizeGhosts(value: unknown): GhostUpdate[] {
 
 async function captureWindow(): Promise<void> {
   const point = pointerPhysical()
-  const result = await windowAtPoint(point.x, point.y)
-  if (!result.window) {
-    publishArea(result.note)
-    return
+  const cover = overlay && !overlay.isDestroyed() && overlay.isVisible()
+  if (cover) overlay?.hide()
+  try {
+    const result = await windowAtPoint(point.x, point.y)
+    if (!result.window) {
+      publishArea(result.note)
+      return
+    }
+    const raw = result.window
+    playArea = { x: raw.x, y: raw.y, width: raw.width, height: raw.height }
+    publishArea(result.window.title)
+  } finally {
+    if (cover && overlay && !overlay.isDestroyed()) overlay.showInactive()
   }
-  const raw = result.window
-  playArea = { x: raw.x, y: raw.y, width: raw.width, height: raw.height }
-  publishArea(result.window.title)
 }
 
 function roundArea(area: Bounds): Bounds {
@@ -241,14 +258,6 @@ function roundArea(area: Bounds): Bounds {
   const right = Math.round(area.x + area.width)
   const bottom = Math.round(area.y + area.height)
   return { x, y, width: Math.max(0, right - x), height: Math.max(0, bottom - y) }
-}
-
-function overlayPointToPhysical(point: Point): Point {
-  if (overlayCssIsPhysical) {
-    const origin = physicalScreen()
-    return { x: point.x + origin.x, y: point.y + origin.y }
-  }
-  return screen.dipToScreenPoint({ x: point.x + overlayDip.x, y: point.y + overlayDip.y })
 }
 
 function settlePick(pick: FramePick | null): void {
@@ -283,7 +292,14 @@ function parsePick(value: unknown): FramePick | null {
   if (pick.space === 'overlay') {
     const numbers = [pick.x1, pick.y1, pick.x2, pick.y2]
     if (!numbers.every((item) => typeof item === 'number' && Number.isFinite(item))) return null
-    return { space: 'overlay', x1: pick.x1, y1: pick.y1, x2: pick.x2, y2: pick.y2 }
+    const clamp = (value: number): number => Math.min(1, Math.max(0, value))
+    return {
+      space: 'overlay',
+      x1: clamp(pick.x1),
+      y1: clamp(pick.y1),
+      x2: clamp(pick.x2),
+      y2: clamp(pick.y2)
+    }
   }
   return null
 }
@@ -310,24 +326,27 @@ function applyDisplayPick(display: Display, pick: Extract<FramePick, { space: 'd
 }
 
 function applyOverlayPick(pick: Extract<FramePick, { space: 'overlay' }>): void {
-  keepArea(
-    roundArea(
-      rectBetween(
-        overlayPointToPhysical({ x: pick.x1, y: pick.y1 }),
-        overlayPointToPhysical({ x: pick.x2, y: pick.y2 })
-      )
-    )
-  )
+  const display = framedDisplay ?? screen.getPrimaryDisplay()
+  applyDisplayPick(display, {
+    space: 'display',
+    displayId: display.id,
+    x: Math.min(pick.x1, pick.x2),
+    y: Math.min(pick.y1, pick.y2),
+    width: Math.abs(pick.x2 - pick.x1),
+    height: Math.abs(pick.y2 - pick.y1)
+  })
 }
 
 async function captureDisplay(display: Display): Promise<string | null> {
   const physical = physicalBounds(display.bounds)
+  const longEdge = Math.max(physical.width, physical.height)
+  const scale = longEdge > 960 ? 960 / longEdge : 1
   const capture = desktopCapturer
     .getSources({
       types: ['screen'],
       thumbnailSize: {
-        width: Math.max(1, Math.round(physical.width)),
-        height: Math.max(1, Math.round(physical.height))
+        width: Math.max(1, Math.round(physical.width * scale)),
+        height: Math.max(1, Math.round(physical.height * scale))
       }
     })
     .then((sources) => {
@@ -373,11 +392,9 @@ function createPicker(display: Display): BrowserWindow {
     roundedCorners: false,
     thickFrame: false,
     title: 'Ghostlink frame',
-    webPreferences: {
-      preload: preloadPath(),
-      sandbox: false
-    }
+    webPreferences: windowPrefs()
   })
+  denyNavigation(win)
   win.setAlwaysOnTop(true, 'screen-saver')
   win.setBounds(display.bounds)
   return win
@@ -425,9 +442,10 @@ async function runScreenshotPick(display: Display, image: string): Promise<Frame
   return result
 }
 
-async function runOverlayPick(): Promise<FramePick | null> {
+async function runOverlayPick(display: Display): Promise<FramePick | null> {
   if (!overlay || overlay.isDestroyed()) return null
-  await syncOverlaySpace()
+  framedDisplay = display
+  overlay.setBounds(display.bounds)
   picking = true
   overlay.setIgnoreMouseEvents(false)
   overlay.setFocusable(true)
@@ -451,12 +469,14 @@ async function beginFrameDrag(displayId: number): Promise<void> {
   try {
     const display =
       screen.getAllDisplays().find((item) => item.id === displayId) ?? screen.getPrimaryDisplay()
+    framedDisplay = display
+    if (overlay && !overlay.isDestroyed()) overlay.hide()
     const image = await captureDisplay(display)
     sendControl(
       CH.playNote,
       image ? 'Drag across the screenshot, then release.' : 'Drag across the picture, then release.'
     )
-    const pick = image ? await runScreenshotPick(display, image) : await runOverlayPick()
+    const pick = image ? await runScreenshotPick(display, image) : await runOverlayPick(display)
     if (!pick) {
       sendControl(CH.playNote, null)
       return
@@ -465,12 +485,15 @@ async function beginFrameDrag(displayId: number): Promise<void> {
     else applyOverlayPick(pick)
   } finally {
     picking = false
+    framedDisplay = null
     pendingShot = null
     closePicker()
     if (overlay && !overlay.isDestroyed()) {
       overlay.setIgnoreMouseEvents(true)
       overlay.setFocusable(false)
+      layoutOverlay()
       if (overlayVisible) overlay.showInactive()
+      await syncOverlaySpace()
     }
     if (seatRaised && pad && !pad.isDestroyed()) pad.setAlwaysOnTop(true, 'screen-saver')
     gesture = false
@@ -513,6 +536,24 @@ function preloadPath(): string {
   return join(__dirname, '../preload/index.js')
 }
 
+function windowPrefs(): { preload: string; contextIsolation: true; sandbox: true } {
+  return {
+    preload: preloadPath(),
+    contextIsolation: true,
+    sandbox: true
+  }
+}
+
+function denyNavigation(win: BrowserWindow): void {
+  win.webContents.on('will-navigate', (event) => {
+    event.preventDefault()
+  })
+}
+
+function fromControl(senderId: number): boolean {
+  return senderId === control?.webContents.id
+}
+
 function loadPage(win: BrowserWindow, page: string): void {
   const splitAt = page.indexOf('?')
   const file = splitAt === -1 ? page : page.slice(0, splitAt)
@@ -527,29 +568,39 @@ function loadPage(win: BrowserWindow, page: string): void {
   void win.loadFile(join(__dirname, '../renderer', file), search ? { search } : undefined)
 }
 
+function showControl(): void {
+  if (!control || control.isDestroyed() || control.isVisible()) return
+  control.show()
+}
+
 function createControl(): void {
   control = new BrowserWindow({
-    width: 420,
-    height: 760,
-    minWidth: 380,
-    minHeight: 520,
+    width: 315,
+    height: 378,
+    useContentSize: true,
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
     show: false,
     autoHideMenuBar: true,
     title: 'Ghostlink',
     backgroundColor: '#141210',
     icon,
-    webPreferences: {
-      preload: preloadPath(),
-      sandbox: false
-    }
+    webPreferences: windowPrefs()
   })
 
   control.on('ready-to-show', () => {
-    control?.show()
+    setTimeout(() => showControl(), 2500)
   })
 
+  denyNavigation(control)
   control.webContents.setWindowOpenHandler((details) => {
-    void shell.openExternal(details.url)
+    try {
+      const url = new URL(details.url)
+      if (url.protocol === 'https:') void shell.openExternal(url.toString())
+    } catch {
+      // Leave a bad URL closed.
+    }
     return { action: 'deny' }
   })
 
@@ -579,12 +630,11 @@ function createOverlay(): void {
     movable: false,
     hasShadow: false,
     roundedCorners: false,
+    thickFrame: false,
     title: 'Ghostlink overlay',
-    webPreferences: {
-      preload: preloadPath(),
-      sandbox: false
-    }
+    webPreferences: windowPrefs()
   })
+  denyNavigation(overlay)
   overlay.setIgnoreMouseEvents(true)
   overlay.webContents.setBackgroundThrottling(false)
   overlay.setAlwaysOnTop(true, 'screen-saver')
@@ -598,6 +648,7 @@ function createOverlay(): void {
     void syncOverlaySpace().then(() => pushOverlay())
   })
   overlay.on('closed', () => {
+    settlePick(null)
     overlay = null
   })
   loadPage(overlay, 'overlay.html')
@@ -637,11 +688,9 @@ function openPad(launch: PadLaunch): void {
     backgroundColor: '#141210',
     autoHideMenuBar: true,
     icon,
-    webPreferences: {
-      preload: preloadPath(),
-      sandbox: false
-    }
+    webPreferences: windowPrefs()
   })
+  denyNavigation(pad)
   pad.webContents.setBackgroundThrottling(false)
   pad.on('ready-to-show', () => {
     if (pad && !pad.isDestroyed()) showPad(pad)
@@ -655,14 +704,16 @@ function openPad(launch: PadLaunch): void {
 function registerIpc(): void {
   ipcMain.handle(CH.displays, () => displays())
   ipcMain.handle(CH.playGet, () => playArea)
-  ipcMain.handle(CH.playUseDisplay, (_event, id: number) => {
+  ipcMain.handle(CH.playUseDisplay, (event, id: number) => {
+    if (!fromControl(event.sender.id)) return null
     const display = screen.getAllDisplays().find((item) => item.id === id)
     if (!display) return null
     playArea = physicalBounds(display.bounds)
     publishArea(null)
     return playArea
   })
-  ipcMain.handle(CH.playRestore, (_event, area: unknown) => {
+  ipcMain.handle(CH.playRestore, (event, area: unknown) => {
+    if (!fromControl(event.sender.id)) return false
     const next = validArea(area)
     if (!next) return false
     playArea = next
@@ -694,7 +745,8 @@ function registerIpc(): void {
     settlePick(parsePick(payload))
   })
   ipcMain.handle(CH.hook, () => watch.current?.status ?? { live: false, detail: 'Not ready' })
-  ipcMain.handle(CH.pad, (_event, launch: PadLaunch) => {
+  ipcMain.handle(CH.pad, (event, launch: PadLaunch) => {
+    if (!fromControl(event.sender.id)) return
     if (!launch || typeof launch.code !== 'string') return
     openPad({ code: launch.code })
   })
@@ -702,6 +754,23 @@ function registerIpc(): void {
     if (event.sender.id !== control?.webContents.id) return
     ghosts = sanitizeGhosts(payload)
     pushOverlay()
+  })
+  ipcMain.on(CH.linked, (event, linked: boolean) => {
+    if (!fromControl(event.sender.id)) return
+    shareSamples = Boolean(linked)
+  })
+  ipcMain.on(CH.fit, (event, size: unknown) => {
+    if (!fromControl(event.sender.id) || !control || control.isDestroyed()) return
+    if (!size || typeof size !== 'object') return
+    const next = size as { width?: unknown; height?: unknown }
+    if (typeof next.width !== 'number' || typeof next.height !== 'number') return
+    if (!Number.isFinite(next.width) || !Number.isFinite(next.height)) return
+    const width = Math.round(next.width)
+    const height = Math.round(next.height)
+    if (width < 240 || height < 200 || width > 640 || height > 900) return
+    const [currentWidth, currentHeight] = control.getContentSize()
+    if (currentWidth !== width || currentHeight !== height) control.setContentSize(width, height)
+    showControl()
   })
   ipcMain.on(CH.frame, (event, show: boolean) => {
     if (event.sender.id !== control?.webContents.id) return
@@ -738,7 +807,6 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  calibratePointer()
   playArea = physicalBounds(screen.getPrimaryDisplay().bounds)
 
   registerIpc()
@@ -748,11 +816,14 @@ app.whenReady().then(() => {
   watch.current = startPointerWatch({
     getArea: () => playArea,
     isMarking: () => mark !== null,
-    onSample: (sample) => sendControl(CH.sample, sample),
+    onSample: (sample) => {
+      if (shareSamples) sendControl(CH.sample, sample)
+    },
     onClick: (sample) => sendControl(CH.click, sample),
     onCursor: () => pushOverlay()
   })
   registerShortcuts(watch.current.status.live)
+  void ensureWin32().then(() => calibratePointer())
 
   screen.on('display-metrics-changed', () => {
     layoutOverlay()
@@ -763,6 +834,7 @@ app.whenReady().then(() => {
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
   watch.current?.stop()
+  stopWin32()
 })
 
 app.on('window-all-closed', () => {
