@@ -1,0 +1,23 @@
+Ghostlink
+
+Leave every file in this folder together. Double-click Ghostlink.exe.
+Do not move Ghostlink.exe out of the folder. It needs the files next to it.
+
+If Windows says "Windows protected your PC":
+  click More info, then Run anyway.
+Windows asks because this app is not from the Store. It asks once.
+
+On both computers:
+
+1. Type your name.
+2. One person clicks New code, then Copy, and sends that code in any chat.
+   The other person types that exact code into Shared code.
+3. Both click Connect.
+   Wait until it says you are connected.
+4. Start the game in a window. Exclusive fullscreen hides the cursor.
+5. Put the mouse over the game and click "The window under my mouse".
+   Do this on both computers, on the same game picture.
+6. You should see the other person's cursor. A click draws a ring.
+   The ring does not click their game.
+
+Send this whole zip to your friend. They unzip it and follow the same steps.

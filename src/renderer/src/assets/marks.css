@@ -1,0 +1,98 @@
+.ghost-move {
+  position: absolute;
+  pointer-events: none;
+  transition:
+    left 60ms linear,
+    top 60ms linear;
+}
+
+.ping {
+  position: absolute;
+  width: 64px;
+  height: 64px;
+  margin: -32px 0 0 -32px;
+  border: 3px solid;
+  border-radius: 999px;
+  pointer-events: none;
+  animation: ghostlink-ping 800ms ease-out forwards;
+}
+
+.frame {
+  position: absolute;
+  border: 2px solid rgba(226, 161, 74, 0.95);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+.mark-banner {
+  position: absolute;
+  left: 50%;
+  top: 16%;
+  transform: translateX(-50%);
+  background: rgba(20, 18, 16, 0.9);
+  color: #f4efe6;
+  padding: 16px 22px;
+  border-radius: 12px;
+  text-align: center;
+  font-family: 'Segoe UI', ui-sans-serif, system-ui, sans-serif;
+}
+
+.mark-count {
+  font-size: 56px;
+  font-weight: 700;
+  line-height: 1;
+  color: #e2a14a;
+}
+
+.crosshair {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border: 2px solid #e2a14a;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px #1a140c;
+  pointer-events: none;
+}
+
+.crosshair::before,
+.crosshair::after {
+  content: '';
+  position: absolute;
+  background: #e2a14a;
+}
+
+.crosshair::before {
+  left: 7px;
+  top: -6px;
+  width: 2px;
+  height: 28px;
+}
+
+.crosshair::after {
+  top: 7px;
+  left: -6px;
+  height: 2px;
+  width: 28px;
+}
+
+@keyframes ghostlink-ping {
+  from {
+    transform: scale(0.3);
+    opacity: 0.95;
+  }
+  to {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ghost-move {
+    transition: none;
+  }
+  .ping {
+    animation: none;
+    opacity: 0.8;
+  }
+}

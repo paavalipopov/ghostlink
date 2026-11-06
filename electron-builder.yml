@@ -1,0 +1,24 @@
+appId: app.ghostlink.desktop
+productName: Ghostlink
+directories:
+  buildResources: build
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+asarUnpack:
+  - resources/**
+  - '**/*.node'
+extraFiles:
+  - from: build/HOWTO.txt
+    to: HOWTO.txt
+win:
+  target:
+    - target: zip
+      arch:
+        - x64
+  artifactName: Ghostlink-${version}-windows.${ext}
+npmRebuild: false
