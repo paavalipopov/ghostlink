@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type JSX } from 'react'
+import { version } from '../../../package.json'
 import type { Bounds } from '../../shared/coords'
 import {
   ERROR_COLOR,
@@ -57,6 +58,11 @@ function makeName(): string {
 }
 
 const LISTEN_MS = 60_000
+
+function releaseMark(value: string): string {
+  const [major, minor] = value.split('.')
+  return major && minor != null && minor !== '' ? `${major}.${minor}` : value
+}
 
 function displayLabel(display: DisplayInfo): string {
   return `${display.bounds.width}×${display.bounds.height}${display.primary ? ' · main' : ''} · ${display.label}`
@@ -135,6 +141,16 @@ function App(): JSX.Element {
   const [name, setName] = useState(() => stored('ghostlink.name', ''))
   const [code, setCode] = useState(() => stored('ghostlink.code', ''))
   const [monitoring, setMonitoring] = useState(false)
+  const [ghostMarks, setGhostMarks] = useState(false)
+  useEffect(() => {
+    let gone = false
+    void window.api.ghostMarks().then((value) => {
+      if (!gone) setGhostMarks(value)
+    })
+    return () => {
+      gone = true
+    }
+  }, [])
   const [listenUntil, setListenUntil] = useState<number | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const [displays, setDisplays] = useState<DisplayInfo[]>([])
@@ -312,9 +328,30 @@ function App(): JSX.Element {
       className="box-border flex flex-col gap-2.5 px-3 py-3"
       style={{ width: layoutWidth, zoom } as CSSProperties}
     >
-      <header className="flex items-center justify-center gap-2">
-        <GhostMark />
-        <h1 className="text-2xl font-semibold tracking-tight">Ghostlink</h1>
+      <header className="flex items-center justify-center">
+        <h1 data-testid="app-title" className="relative text-2xl font-semibold tracking-tight">
+          <button
+            type="button"
+            data-testid="ghost-toggle"
+            aria-pressed={ghostMarks}
+            aria-label="Ghost pointers"
+            className="absolute right-full top-1/2 m-0 mr-2 -translate-y-1/2 cursor-default border-0 bg-transparent p-0 leading-none"
+            onClick={() => {
+              const next = !ghostMarks
+              setGhostMarks(next)
+              window.api.setGhostMarks(next)
+            }}
+          >
+            <GhostMark />
+          </button>
+          Ghostlink
+          <sup
+            data-testid="app-version"
+            className="pointer-events-none absolute left-full top-[0.15em] ml-0.5 text-[0.5em] font-semibold leading-none tracking-normal"
+          >
+            {releaseMark(version)}
+          </sup>
+        </h1>
       </header>
 
       <div className="flex items-center gap-2">

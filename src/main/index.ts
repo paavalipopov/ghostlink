@@ -40,6 +40,7 @@ let overlay: BrowserWindow | null = null
 let pad: BrowserWindow | null = null
 let playArea: Bounds = { x: 0, y: 0, width: 800, height: 600 }
 let showFrame = true
+let ghostMarks = false
 let shareSamples = false
 let ghosts: GhostUpdate[] = []
 let mark: MarkState = null
@@ -185,6 +186,11 @@ function pushOverlay(): void {
     })
   }
   overlay.webContents.send(CH.overlay, model)
+}
+
+function sendMarks(win: BrowserWindow | null): void {
+  if (!win || win.isDestroyed()) return
+  win.webContents.send(CH.marksState, ghostMarks)
 }
 
 function publishArea(note: string | null = null): void {
@@ -649,6 +655,7 @@ function createOverlay(): void {
     void syncOverlaySpace().then(() => pushOverlay())
   })
   overlay.webContents.on('did-finish-load', () => {
+    sendMarks(overlay)
     void syncOverlaySpace().then(() => pushOverlay())
   })
   overlay.on('closed', () => {
@@ -696,6 +703,9 @@ function openPad(launch: PadLaunch): void {
   })
   denyNavigation(pad)
   pad.webContents.setBackgroundThrottling(false)
+  pad.webContents.on('did-finish-load', () => {
+    sendMarks(pad)
+  })
   pad.on('ready-to-show', () => {
     if (pad && !pad.isDestroyed()) showPad(pad)
   })
@@ -780,6 +790,13 @@ function registerIpc(): void {
     if (event.sender.id !== control?.webContents.id) return
     showFrame = Boolean(show)
     pushOverlay()
+  })
+  ipcMain.handle(CH.marksGet, () => ghostMarks)
+  ipcMain.on(CH.marksSet, (event, on: boolean) => {
+    if (!fromControl(event.sender.id)) return
+    ghostMarks = Boolean(on)
+    sendMarks(overlay)
+    sendMarks(pad)
   })
 }
 

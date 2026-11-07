@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type JSX, type PointerEvent } from 'react'
 import type { MarkKind, OverlayModel } from '../../shared/protocol'
 import { CursorMark } from './CursorMark'
+import { useGhostMarks } from './ghost-marks'
 import './assets/marks.css'
 
 const MARK_TEXT: Record<MarkKind, string> = {
@@ -22,6 +23,7 @@ function draftBetween(a: { x: number; y: number }, b: { x: number; y: number }):
 
 export function Overlay(): JSX.Element {
   const [model, setModel] = useState<OverlayModel | null>(null)
+  const ghostMarks = useGhostMarks()
   const [draft, setDraft] = useState<Draft | null>(null)
   const origin = useRef<{ x: number; y: number } | null>(null)
 
@@ -140,6 +142,7 @@ export function Overlay(): JSX.Element {
             <CursorMark
               name={ghost.name}
               color={ghost.color}
+              shape={ghostMarks ? 'ghost' : 'arrow'}
               clickKey={ghost.flash ? ghost.flashId : null}
             />
           </div>

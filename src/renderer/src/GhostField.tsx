@@ -1,9 +1,11 @@
 import type { JSX } from 'react'
 import type { ShownGhost } from './link'
 import { CursorMark } from './CursorMark'
+import { useGhostMarks } from './ghost-marks'
 import './assets/marks.css'
 
 export function GhostField({ ghosts }: { ghosts: Record<string, ShownGhost> }): JSX.Element {
+  const ghostMarks = useGhostMarks()
   return (
     <>
       {Object.entries(ghosts).map(([id, ghost]) => (
@@ -21,6 +23,7 @@ export function GhostField({ ghosts }: { ghosts: Record<string, ShownGhost> }): 
               <CursorMark
                 name={ghost.name}
                 color={ghost.color}
+                shape={ghostMarks ? 'ghost' : 'arrow'}
                 clickKey={ghost.pings.length > 0 ? ghost.pings[ghost.pings.length - 1].id : null}
               />
             </div>

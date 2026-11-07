@@ -40,6 +40,11 @@ const api: GhostlinkApi = {
   fitWindow: (size) => {
     ipcRenderer.send(CH.fit, size)
   },
+  setGhostMarks: (on) => {
+    ipcRenderer.send(CH.marksSet, on)
+  },
+  ghostMarks: () => ipcRenderer.invoke(CH.marksGet),
+  onGhostMarks: (cb) => subscribe(CH.marksState, cb),
   hookStatus: () => ipcRenderer.invoke(CH.hook),
   openPad: (launch: PadLaunch) => ipcRenderer.invoke(CH.pad, launch)
 }

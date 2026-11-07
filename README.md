@@ -1,5 +1,7 @@
 # Ghostlink
 
+![Ghostlink control panel](docs/panel.png)
+
 A ghost pointer for two people playing the same point-and-click game on two Windows PCs. Each of you runs your own copy of the game. You see your friend's cursor. When they click, that cursor blinks, then returns to its own color. The blink does not click your game.
 
 ## Play
