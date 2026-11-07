@@ -1,27 +1,36 @@
 # Ghostlink
 
+<img src="docs/logo.png" alt="Ghostlink" width="96">
+
+Ghostlink shows the other person's pointer on your screen when you both use the same secret. When they click, that pointer blinks, then returns to its color. Your own pointer stays where you put it.
+
 ![Ghostlink control panel](docs/panel.png)
 
-A ghost pointer for two people playing the same point-and-click game on two Windows PCs. Each of you runs your own copy of the game. You see your friend's cursor. When they click, that cursor blinks, then returns to its own color. The blink does not click your game.
+## Connect
 
-## Play
+1. Choose a username and a secret (or pick random with dice), share the secret with the other person.
+3. Click **Connect** and app will try to etablish connection with the other person for a minute.
+3. When the other person is there, the indicator turns green and the button says Connected.
 
-1. Unzip the folder and open `Ghostlink.exe` on both PCs. If Windows says it protected your PC, choose **More info**, then **Run anyway**. The app is not signed.
 
-On both PCs:
+## Setting the shared area
 
-1. Type a username, or click the dice in that field.
-2. One person clicks the dice in the secret field. A code appears. Send that code in any chat.
-3. Both people click **Connect** within about a minute. Either side can go first. The button shows Disconnect and a countdown while it listens. Disconnect cancels the wait. If the minute ends with nobody else there, it returns to Connect.
-4. The dot turns green on both PCs. Name and code stay filled in.
-5. Start the game in a window. Exclusive fullscreen hides the cursor.
-6. Put the pointer over the game and click **Target window**. Do this on both computers, on the same game picture.
-7. Their cursor appears on your screen. A click blinks it.
+Other people pointer's appears only inside the rectangle on your screen. This rectangle is also the only place that shares your pointer; if you move your mouse outside that frame, the other person can't see it.
 
-## Limits
+- Click **Full screen** to use the whole display.
+- Click **Drag frame**, then drag a rectangle.
+- Click **Target window**, move the pointer over a window, and wait through the countdown. The rectangle becomes that window.
 
-Windows has one real cursor. Ghostlink draws the second one. It does not move your mouse and it does not click the other copy of the game.
 
-The cursor lines up when both frames cover the same picture. Different resolutions are fine. A title bar in the frame puts the cursor in the wrong place: drag a rectangle around the picture itself.
+## Build
 
-This is for point-and-click timing, not fast action games.
+On Windows, from this folder:
+
+```
+npm install
+npm run build:win
+```
+
+That writes `dist/Ghostlink-x.x.x-windows.zip`. Unzip it and open `Ghostlink.exe`. 
+
+`npm run dev` runs Ghostlink from source.
