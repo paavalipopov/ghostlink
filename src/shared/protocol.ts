@@ -120,7 +120,7 @@ export function makeCode(): string {
 }
 
 export function codeIsStrong(code: string): boolean {
-  return code.trim().replace(/[\s-]/g, '').length >= 16
+  return code.trim().replace(/[\s-]/g, '').length >= 6
 }
 
 export function unitPoint(x: unknown, y: unknown): { x: number; y: number } | null {

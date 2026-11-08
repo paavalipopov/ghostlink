@@ -46,7 +46,11 @@ const api: GhostlinkApi = {
   ghostMarks: () => ipcRenderer.invoke(CH.marksGet),
   onGhostMarks: (cb) => subscribe(CH.marksState, cb),
   hookStatus: () => ipcRenderer.invoke(CH.hook),
-  openPad: (launch: PadLaunch) => ipcRenderer.invoke(CH.pad, launch)
+  openPad: (launch: PadLaunch) => ipcRenderer.invoke(CH.pad, launch),
+  getUpdateState: () => ipcRenderer.invoke(CH.updateGet),
+  checkForUpdates: () => ipcRenderer.invoke(CH.updateCheck),
+  restartAndUpdate: () => ipcRenderer.invoke(CH.updateInstall),
+  onUpdateState: (cb) => subscribe(CH.updateState, cb)
 }
 
 contextBridge.exposeInMainWorld('api', api)

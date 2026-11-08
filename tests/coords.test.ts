@@ -96,8 +96,16 @@ describe('shared code', () => {
     expect(code).toMatch(/^[0-9abcdefghjkmnpqrstvwxyz]{4}(?:-[0-9abcdefghjkmnpqrstvwxyz]{4}){4}$/)
     expect(code.replace(/-/g, '')).toHaveLength(20)
     expect(codeIsStrong(code)).toBe(true)
-    expect(codeIsStrong('amber-harbor-42')).toBe(false)
+    expect(codeIsStrong('amber-harbor-42')).toBe(true)
     expect(codeIsStrong('short')).toBe(false)
+  })
+
+  it('accepts six secret characters, ignoring spaces and hyphens in the count', () => {
+    expect(codeIsStrong('abc123')).toBe(true)
+    expect(codeIsStrong('  abc-123  ')).toBe(true)
+    expect(codeIsStrong('abc12')).toBe(false)
+    expect(codeIsStrong('  ab-c 12  ')).toBe(false)
+    expect(codeIsStrong('------')).toBe(false)
   })
 
   it('ignores a point that is not inside the frame', () => {

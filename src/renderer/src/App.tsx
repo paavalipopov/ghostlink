@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type JSX } from 'react'
 import { version } from '../../../package.json'
+import type { UpdateState } from '../../shared/bridge'
 import type { Bounds } from '../../shared/coords'
 import {
   ERROR_COLOR,
@@ -12,14 +13,7 @@ import {
 import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
 import { useGhostLink, type LinkPhase, type LinkSettings } from './link'
-import {
-  GhostMark,
-  IconDice,
-  IconBug,
-  IconDrag,
-  IconFullScreen,
-  IconWindow
-} from './icons'
+import { GhostMark, IconDice, IconBug, IconDrag, IconFullScreen, IconWindow } from './icons'
 
 function stored(key: string, fallback: string): string {
   try {
@@ -84,6 +78,37 @@ function monitorTitle(state: 'idle' | 'wait' | 'live' | 'error', detail: string)
   return 'Disconnected'
 }
 
+function updatePresentation(state: UpdateState): {
+  status: string
+  action: string
+  busy: boolean
+} {
+  switch (state.phase) {
+    case 'checking':
+      return { status: 'Checking for updates', action: 'Checking…', busy: true }
+    case 'available':
+      return { status: `Version ${state.version} found`, action: 'Downloading…', busy: true }
+    case 'downloading':
+      return {
+        status: `Downloading version ${state.version}`,
+        action: `${state.percent}%`,
+        busy: true
+      }
+    case 'ready':
+      return {
+        status: `Version ${state.version} is ready`,
+        action: 'Restart and update',
+        busy: false
+      }
+    case 'up-to-date':
+      return { status: `Version ${state.version} is current`, action: 'Check again', busy: false }
+    case 'error':
+      return { status: state.message, action: 'Retry', busy: false }
+    default:
+      return { status: 'Application updates', action: 'Check', busy: false }
+  }
+}
+
 function LinkDot({
   state,
   title
@@ -139,6 +164,21 @@ function App(): JSX.Element {
   const [marking, setMarking] = useState(false)
   const [panelReady, setPanelReady] = useState(false)
   const [sessionCode, setSessionCode] = useState('')
+  const [updateState, setUpdateState] = useState<UpdateState>({ phase: 'unsupported' })
+
+  useEffect(() => {
+    let gone = false
+    const stop = window.api.onUpdateState((next) => {
+      if (!gone) setUpdateState(next)
+    })
+    void window.api.getUpdateState().then((next) => {
+      if (!gone) setUpdateState(next)
+    })
+    return () => {
+      gone = true
+      stop()
+    }
+  }, [])
 
   const settings: LinkSettings = { code: sessionCode }
   const link = useGhostLink(monitoring, settings)
@@ -218,6 +258,7 @@ function App(): JSX.Element {
   const linked = monitoring && link.phase === 'linked'
   const dot = monitorState(monitoring, link.phase)
   const dotTitle = monitorTitle(dot, link.detail)
+  const update = updatePresentation(updateState)
 
   useEffect(() => {
     window.api.setLinked(linked)
@@ -479,6 +520,39 @@ function App(): JSX.Element {
             <IconBug />
           </Button>
         </div>
+      </section>
+
+      <section
+        data-testid="updater"
+        data-state={updateState.phase}
+        aria-hidden={updateState.phase === 'unsupported'}
+        className={`flex min-h-8 items-center gap-2 ${
+          updateState.phase === 'unsupported' ? 'invisible' : ''
+        }`}
+      >
+        <span
+          className="min-w-0 flex-1 truncate text-xs text-muted-foreground"
+          title={update.status}
+        >
+          {update.status}
+        </span>
+        <Button
+          type="button"
+          size="sm"
+          variant={updateState.phase === 'ready' ? 'default' : 'outline'}
+          className="shrink-0"
+          data-testid="update-action"
+          disabled={update.busy}
+          onClick={() => {
+            if (updateState.phase === 'ready') {
+              void window.api.restartAndUpdate()
+              return
+            }
+            void window.api.checkForUpdates()
+          }}
+        >
+          {update.action}
+        </Button>
       </section>
     </main>
   )

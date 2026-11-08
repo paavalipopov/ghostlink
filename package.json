@@ -1,9 +1,13 @@
 {
   "name": "ghostlink",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "A ghost pointer shared between two copies of a game, with an optional click ping.",
   "main": "./out/main/index.js",
   "author": "Ghostlink",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/paavalipopov/ghostlink.git"
+  },
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",
@@ -16,7 +20,8 @@
     "build": "npm run typecheck && electron-vite build",
     "postinstall": "install-electron && electron-builder install-app-deps",
     "build:unpack": "npm run build && electron-builder --dir",
-    "build:win": "npm run build && electron-builder --win"
+    "build:win": "npm run build && electron-builder --win",
+    "release:win": "npm run build && electron-builder --win --x64 --publish always"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
@@ -26,6 +31,7 @@
     "@radix-ui/react-switch": "^1.4.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "electron-updater": "^6.8.12",
     "tailwind-merge": "^3.7.0",
     "trystero": "^0.26.0",
     "uiohook-napi": "^1.5.5"

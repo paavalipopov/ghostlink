@@ -29,6 +29,7 @@ import { windowAtPoint } from './desktop-windows'
 import { startPointerWatch } from './input'
 import { calibratePointer, physicalBounds, pointerPhysical } from './pixels'
 import { ensureWin32, stopWin32 } from './win32'
+import { createUpdateController, type UpdateController } from './updater'
 
 if (process.env.GHOSTLINK_DEBUG === '1') {
   app.commandLine.appendSwitch('remote-debugging-port', '9333')
@@ -55,6 +56,7 @@ let overlayDip = { x: 0, y: 0, width: 800, height: 600 }
 // Play-area numbers are Windows physical pixels. Electron's own window bounds are DIP.
 // The transparent overlay's CSS pixel is whichever of those two spaces it actually renders.
 let overlayCssIsPhysical = process.platform === 'win32'
+let updates: UpdateController | null = null
 
 const watch = {
   current: null as ReturnType<typeof startPointerWatch> | null
@@ -806,6 +808,18 @@ function registerIpc(): void {
     if (!launch || typeof launch.code !== 'string') return
     openPad({ code: launch.code })
   })
+  ipcMain.handle(CH.updateGet, (event) => {
+    if (!fromControl(event.sender.id)) return { phase: 'unsupported' }
+    return updates?.getState() ?? { phase: 'unsupported' }
+  })
+  ipcMain.handle(CH.updateCheck, async (event) => {
+    if (!fromControl(event.sender.id)) return
+    await updates?.check()
+  })
+  ipcMain.handle(CH.updateInstall, (event) => {
+    if (!fromControl(event.sender.id)) return false
+    return updates?.restartAndInstall() ?? false
+  })
   ipcMain.on(CH.ghosts, (event, payload: unknown) => {
     if (event.sender.id !== control?.webContents.id) return
     ghosts = sanitizeGhosts(payload)
@@ -872,9 +886,11 @@ app.whenReady().then(() => {
 
   playArea = physicalBounds(screen.getPrimaryDisplay().bounds)
 
+  updates = createUpdateController((state) => sendControl(CH.updateState, state))
   registerIpc()
   createControl()
   createOverlay()
+  updates.start()
 
   watch.current = startPointerWatch({
     getArea: () => playArea,
@@ -895,6 +911,7 @@ app.whenReady().then(() => {
 })
 
 app.on('will-quit', () => {
+  updates?.dispose()
   globalShortcut.unregisterAll()
   watch.current?.stop()
   stopWin32()

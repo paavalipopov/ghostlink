@@ -13,6 +13,16 @@ export type PadLaunch = {
   code: string
 }
 
+export type UpdateState =
+  | { phase: 'unsupported' }
+  | { phase: 'idle' }
+  | { phase: 'checking' }
+  | { phase: 'available'; version: string }
+  | { phase: 'downloading'; version: string; percent: number }
+  | { phase: 'ready'; version: string }
+  | { phase: 'up-to-date'; version: string }
+  | { phase: 'error'; message: string }
+
 export const CH = {
   displays: 'displays:get',
   playGet: 'play:get',
@@ -36,7 +46,11 @@ export const CH = {
   fit: 'window:fit',
   marksGet: 'marks:get',
   marksSet: 'marks:set',
-  marksState: 'marks:state'
+  marksState: 'marks:state',
+  updateGet: 'update:get',
+  updateCheck: 'update:check',
+  updateInstall: 'update:install',
+  updateState: 'update:state'
 } as const
 
 export type GhostlinkApi = {
@@ -63,4 +77,8 @@ export type GhostlinkApi = {
   onGhostMarks: (cb: (on: boolean) => void) => () => void
   hookStatus: () => Promise<HookStatus>
   openPad: (launch: PadLaunch) => Promise<void>
+  getUpdateState: () => Promise<UpdateState>
+  checkForUpdates: () => Promise<void>
+  restartAndUpdate: () => Promise<boolean>
+  onUpdateState: (cb: (state: UpdateState) => void) => () => void
 }
