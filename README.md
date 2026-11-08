@@ -17,9 +17,9 @@ Ghostlink shows the other person's pointer on your screen when you both use the 
 
 Other people pointer's appears only inside the rectangle on your screen. This rectangle is also the only place that shares your pointer; if you move your mouse outside that frame, the other person can't see it.
 
-- Click **Full screen** to use the whole display.
+- Click **Full Screen** to use the whole display.
 - Click **Drag frame**, then drag a rectangle.
-- Click **Target window**, move the pointer over a window, and wait through the countdown. The rectangle becomes that window.
+- Click **Pick window**, move the pointer over a window, and wait through the countdown. The rectangle becomes that window.
 
 
 ## Build

@@ -468,7 +468,7 @@ async function runOverlayPick(display: Display): Promise<FramePick | null> {
   })
 }
 
-async function beginFrameDrag(displayId: number): Promise<void> {
+async function beginFrameDrag(): Promise<void> {
   if (gesture || mark) return
   gesture = true
   const seatRaised = Boolean(pad && !pad.isDestroyed())
@@ -477,8 +477,7 @@ async function beginFrameDrag(displayId: number): Promise<void> {
   sendControl(CH.playMarking, true)
   sendControl(CH.playNote, 'Preparing the picture.')
   try {
-    const display =
-      screen.getAllDisplays().find((item) => item.id === displayId) ?? screen.getPrimaryDisplay()
+    const display = displayForFrame()
     framedDisplay = display
     if (overlay && !overlay.isDestroyed()) overlay.hide()
     const image = await captureDisplay(display)
@@ -530,6 +529,51 @@ async function beginMark(kind: MarkKind): Promise<void> {
   mark = null
   sendControl(CH.playMarking, false)
   pushOverlay()
+}
+
+function overlapArea(a: Bounds, b: Bounds): number {
+  const width = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)
+  const height = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y)
+  if (width <= 0 || height <= 0) return 0
+  return width * height
+}
+
+function displayHoldingFrame(): Display | null {
+  if (playArea.width < 40 || playArea.height < 40) return null
+  let best: Display | null = null
+  let bestArea = 0
+  for (const display of screen.getAllDisplays()) {
+    const overlap = overlapArea(playArea, physicalBounds(display.bounds))
+    if (overlap > bestArea) {
+      best = display
+      bestArea = overlap
+    }
+  }
+  return best
+}
+
+function displayUnderPointer(): Display | null {
+  let point: { x: number; y: number }
+  try {
+    point = pointerPhysical()
+  } catch {
+    return null
+  }
+  if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return null
+  for (const display of screen.getAllDisplays()) {
+    const bounds = physicalBounds(display.bounds)
+    const inside =
+      point.x >= bounds.x &&
+      point.y >= bounds.y &&
+      point.x < bounds.x + bounds.width &&
+      point.y < bounds.y + bounds.height
+    if (inside) return display
+  }
+  return null
+}
+
+function displayForFrame(): Display {
+  return displayHoldingFrame() ?? displayUnderPointer() ?? screen.getPrimaryDisplay()
 }
 
 function displays(): DisplayInfo[] {
@@ -718,10 +762,9 @@ function openPad(launch: PadLaunch): void {
 function registerIpc(): void {
   ipcMain.handle(CH.displays, () => displays())
   ipcMain.handle(CH.playGet, () => playArea)
-  ipcMain.handle(CH.playUseDisplay, (event, id: number) => {
+  ipcMain.handle(CH.playUseDisplay, (event) => {
     if (!fromControl(event.sender.id)) return null
-    const display = screen.getAllDisplays().find((item) => item.id === id)
-    if (!display) return null
+    const display = displayForFrame()
     playArea = physicalBounds(display.bounds)
     publishArea(null)
     return playArea
@@ -744,10 +787,9 @@ function registerIpc(): void {
       gesture = false
     }
   })
-  ipcMain.handle(CH.playPick, async (event, displayId: number) => {
+  ipcMain.handle(CH.playPick, async (event) => {
     if (event.sender.id !== control?.webContents.id) return
-    if (typeof displayId !== 'number' || !Number.isFinite(displayId)) return
-    await beginFrameDrag(displayId)
+    await beginFrameDrag()
   })
   ipcMain.handle(CH.playPickShot, (event) => {
     if (event.sender.id !== picker?.webContents.id) return null

@@ -16,10 +16,10 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
 const api: GhostlinkApi = {
   getDisplays: () => ipcRenderer.invoke(CH.displays),
   getPlayArea: () => ipcRenderer.invoke(CH.playGet),
-  useDisplay: (id) => ipcRenderer.invoke(CH.playUseDisplay, id),
+  useDisplay: () => ipcRenderer.invoke(CH.playUseDisplay),
   restorePlayArea: (area: Bounds) => ipcRenderer.invoke(CH.playRestore, area),
   mark: (kind) => ipcRenderer.invoke(CH.playMark, kind),
-  pickFrame: (displayId) => ipcRenderer.invoke(CH.playPick, displayId),
+  pickFrame: () => ipcRenderer.invoke(CH.playPick),
   pickShot: () => ipcRenderer.invoke(CH.playPickShot),
   finishPick: (pick: FramePick | null) => ipcRenderer.invoke(CH.playPickFinish, pick),
   onPlayArea: (cb) => subscribe(CH.playArea, cb),

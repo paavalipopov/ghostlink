@@ -42,10 +42,10 @@ export const CH = {
 export type GhostlinkApi = {
   getDisplays: () => Promise<DisplayInfo[]>
   getPlayArea: () => Promise<Bounds>
-  useDisplay: (id: number) => Promise<Bounds | null>
+  useDisplay: () => Promise<Bounds | null>
   restorePlayArea: (area: Bounds) => Promise<boolean>
   mark: (kind: MarkKind) => Promise<void>
-  pickFrame: (displayId: number) => Promise<void>
+  pickFrame: () => Promise<void>
   pickShot: () => Promise<{ displayId: number; image: string } | null>
   finishPick: (pick: FramePick | null) => Promise<void>
   onPlayArea: (cb: (area: Bounds) => void) => () => void

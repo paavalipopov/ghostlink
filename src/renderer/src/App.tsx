@@ -7,8 +7,7 @@ import {
   LIVE_COLOR,
   codeIsStrong,
   makeCode,
-  makePingId,
-  type DisplayInfo
+  makePingId
 } from '../../shared/protocol'
 import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
@@ -62,22 +61,6 @@ const LISTEN_MS = 60_000
 function releaseMark(value: string): string {
   const [major, minor] = value.split('.')
   return major && minor != null && minor !== '' ? `${major}.${minor}` : value
-}
-
-function displayLabel(display: DisplayInfo): string {
-  return `${display.bounds.width}×${display.bounds.height}${display.primary ? ' · main' : ''} · ${display.label}`
-}
-
-function panelWidth(items: DisplayInfo[]): number {
-  const canvas = document.createElement('canvas')
-  const pen = canvas.getContext('2d')
-  if (!pen) return 300
-  pen.font = '14px Segoe UI'
-  const text = items.reduce(
-    (max, display) => Math.max(max, pen.measureText(displayLabel(display)).width),
-    0
-  )
-  return Math.min(420, Math.max(300, Math.ceil(text) + 84))
 }
 
 function remainLabel(until: number, now: number): string {
@@ -153,9 +136,6 @@ function App(): JSX.Element {
   }, [])
   const [listenUntil, setListenUntil] = useState<number | null>(null)
   const [now, setNow] = useState(() => Date.now())
-  const [displays, setDisplays] = useState<DisplayInfo[]>([])
-  const [displayId, setDisplayId] = useState<number | null>(null)
-  const [note, setNote] = useState<string | null>(null)
   const [marking, setMarking] = useState(false)
   const [panelReady, setPanelReady] = useState(false)
   const [sessionCode, setSessionCode] = useState('')
@@ -181,20 +161,11 @@ function App(): JSX.Element {
         // Ignore a damaged saved rectangle.
       }
     }
-    void window.api
-      .getDisplays()
-      .then((items) => {
-        setDisplays(items)
-        setDisplayId(
-          (current) => current ?? items.find((item) => item.primary)?.id ?? items[0]?.id ?? null
-        )
-      })
-      .finally(() => setPanelReady(true))
+    setPanelReady(true)
     void window.api.setShowFrame(true)
     const offArea = window.api.onPlayArea((next) => {
       remember('ghostlink.areaPx', JSON.stringify(next))
     })
-    const offNote = window.api.onNote(setNote)
     const offMarking = window.api.onMarking(setMarking)
     const offSample = window.api.onSample((sample) => {
       if (!enabled.current) return
@@ -215,7 +186,6 @@ function App(): JSX.Element {
     })
     return () => {
       offArea()
-      offNote()
       offMarking()
       offSample()
       offClick()
@@ -273,7 +243,7 @@ function App(): JSX.Element {
     return () => clearInterval(timer)
   }, [listenUntil])
 
-  const [layoutWidth, setLayoutWidth] = useState(300)
+  const layoutWidth = 300
   const [layoutReady, setLayoutReady] = useState(false)
   const [zoom, setZoom] = useState(1)
   useLayoutEffect(() => {
@@ -281,13 +251,12 @@ function App(): JSX.Element {
     let cancel = false
     void document.fonts.ready.then(() => {
       if (cancel) return
-      setLayoutWidth(panelWidth(displays))
       setLayoutReady(true)
     })
     return () => {
       cancel = true
     }
-  }, [panelReady, displays])
+  }, [panelReady])
 
   useLayoutEffect(() => {
     if (!layoutReady || fitted.current) return
@@ -309,9 +278,6 @@ function App(): JSX.Element {
     }, 30)
     window.setTimeout(() => window.clearInterval(started), 1000)
   }, [layoutReady, layoutWidth])
-
-  const chosen = displays.find((item) => item.id === displayId)
-  const displayTitle = chosen ? displayLabel(chosen) : 'Screen the game is on'
 
   const beginListen = (): void => {
     nameRef.current = name.trim() || 'Friend'
@@ -460,35 +426,18 @@ function App(): JSX.Element {
 
       <section className="space-y-2.5">
         <h2 className="text-center text-sm font-medium">Shared display</h2>
-        <select
-          id="display"
-          aria-label="Shared display"
-          title={displayTitle}
-          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-          value={displayId ?? ''}
-          onChange={(event) => setDisplayId(Number(event.target.value))}
-        >
-          {displays.map((display) => (
-            <option key={display.id} value={display.id}>
-              {displayLabel(display)}
-            </option>
-          ))}
-        </select>
         <div className="grid grid-cols-2 gap-1.5">
           <Button
             type="button"
             variant="secondary"
             className="px-2"
-            title="Frame this whole display"
-            disabled={displayId == null || marking}
-            data-testid="full-screen"
-            onClick={() => {
-              if (displayId == null) return
-              void window.api.useDisplay(displayId)
-            }}
+            title="Point at a window and wait through the countdown. The frame matches that window."
+            disabled={marking}
+            data-testid="mark-window"
+            onClick={() => void window.api.mark('window')}
           >
-            <IconFullScreen />
-            Full Screen
+            <IconWindow />
+            Pick window
           </Button>
           <Button
             type="button"
@@ -496,11 +445,8 @@ function App(): JSX.Element {
             className="px-2"
             data-testid="drag-frame"
             title="Click and drag across to select a custom rectangular frame."
-            disabled={displayId == null || marking}
-            onClick={() => {
-              if (displayId == null) return
-              void window.api.pickFrame(displayId)
-            }}
+            disabled={marking}
+            onClick={() => void window.api.pickFrame()}
           >
             <IconDrag />
             Drag frame
@@ -511,13 +457,13 @@ function App(): JSX.Element {
             type="button"
             variant="secondary"
             className="min-w-0 flex-1 px-2"
-            title="Point at the game, then click. The frame matches that window."
+            title="Frame this whole display"
             disabled={marking}
-            data-testid="mark-window"
-            onClick={() => void window.api.mark('window')}
+            data-testid="full-screen"
+            onClick={() => void window.api.useDisplay()}
           >
-            <IconWindow />
-            Target window
+            <IconFullScreen />
+            Full Screen
           </Button>
           <Button
             type="button"
@@ -533,9 +479,6 @@ function App(): JSX.Element {
             <IconBug />
           </Button>
         </div>
-        <p data-testid="play-area" className="min-h-4 text-xs text-muted-foreground">
-          {marking ? note || 'Move the pointer, then hold still.' : note}
-        </p>
       </section>
     </main>
   )
