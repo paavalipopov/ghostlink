@@ -7,10 +7,26 @@ files:
   - out/preload/**
   - out/renderer/**
   - package.json
+  # Renderer dependencies are bundled by Vite; keep only main-process runtime modules.
+  - '!node_modules/@electron-toolkit/preload/**'
+  - '!node_modules/@noble/**'
+  - '!node_modules/@radix-ui/**'
+  - '!node_modules/@trystero-p2p/**'
+  - '!node_modules/{class-variance-authority,clsx,tailwind-merge,trystero}/**'
+  # uiohook-napi needs only its JS loader and the Windows x64 prebuild at runtime.
+  - '!node_modules/uiohook-napi/build/**'
+  - '!node_modules/uiohook-napi/libuiohook/**'
+  - '!node_modules/uiohook-napi/src/**'
+  - '!node_modules/uiohook-napi/prebuilds/darwin-*/**'
+  - '!node_modules/uiohook-napi/prebuilds/linux-*/**'
+  - '!node_modules/uiohook-napi/prebuilds/win32-arm64/**'
+  - '!node_modules/uiohook-napi/**/*.map'
 asarUnpack:
   - resources/**
   - '**/*.node'
 win:
+  electronLanguages:
+    - en-US
   target:
     - target: nsis
       arch:
