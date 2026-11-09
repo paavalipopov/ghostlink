@@ -8,15 +8,15 @@ Ghostlink shows the other person's pointer on your screen when you both use the 
 
 ## Connect
 
-1. Choose a username and a secret (or pick random with dice), share the secret with the other person.
-2. Click **Connect** and app will try to etablish connection with the other person for a minute.
-3. When the other person is there, the indicator turns green and the button says Connected.
+1. Choose a username and a secret (or generate them with the dice), then share the secret with the other person.
+2. Both people click **Connect**. Ghostlink looks for the other person for one minute.
+3. When connected, the indicator turns green and the button says Connected.
 
-Secrets need at least 6 characters, not counting spaces or hyphens. The dice still generates a 20-character secret in five groups of four. Both people must enter the same secret, including its internal spaces and hyphens.
+Secrets need at least 6 characters, not counting spaces or hyphens. The dice generates a 20-character secret in five groups of four. Both people must enter the same secret, including its internal spaces and hyphens.
 
 ## Setting the shared area
 
-Other people pointer's appears only inside the rectangle on your screen. This rectangle is also the only place that shares your pointer; if you move your mouse outside that frame, the other person can't see it.
+Your friend's pointer appears inside the selected rectangle on your screen. Your pointer is shared only while it is inside your own rectangle.
 
 - Click **Full Screen** to use the whole display.
 - Click **Drag frame**, then drag a rectangle.
@@ -24,9 +24,9 @@ Other people pointer's appears only inside the rectangle on your screen. This re
 
 ## Test your pointer
 
-The bug button opens a compact private test trackpad automatically; no username, secret, or Connect click is needed. Move or click in its test surface to control a colored **Test user** pointer in your selected shared area. The trackpad does not draw additional pointers inside its window. Closing the test window ends the test without changing your selected area or normal connection.
+Click the bug button to open a private test trackpad. Move or click inside it to control a colored **Test user** pointer in your selected shared area. Close the window to end the test.
 
-The test window uses the same indicators as the main panel: blinking while connecting, green when connected, and red if the check fails. **Relays** reports reachable signaling-server sockets; **Test peer** reports the actual WebRTC connection to the main panel. This local test does not prove a connection through another computer's firewall.
+Indicators blink while connecting, turn green when connected, and turn red if the check fails. **Relays** checks the handshake servers; **Test peer** checks the connection to your main panel. This local test does not check another computer's network.
 
 `npm run test:link` builds and checks the two local peers through real signaling servers, verifies movement/clicks in a selected area, and checks that closing the test preserves the area and normal connection state. It needs a Windows desktop and internet access.
 
@@ -41,7 +41,7 @@ npm run build:win
 
 That writes `dist/Ghostlink-x.x.x-windows-setup.exe`. Run the installer, then open Ghostlink. Installed builds check GitHub Releases for updates after launch; when an update is ready, use **Restart and update** in the control panel.
 
-The installer lets you choose the installation folder. New installations default to all users under Program Files (administrator permission required); you can also choose a current-user installation. Upgrades remember the existing installation and folder. App information is linked on the welcome and finish pages. `Uninstall Ghostlink.exe` is included in the chosen installation folder, and Ghostlink also appears in Windows Installed apps. Uninstalling preserves your saved settings.
+Choose an installation folder in the setup wizard. The default is Program Files for all users (administrator permission required), with a current-user option available. Launch Ghostlink from its Desktop or Start menu shortcut. To uninstall, use Windows Installed apps or `Uninstall Ghostlink.exe` in the installation folder.
 
 `npm run dev` runs Ghostlink from source.
 
