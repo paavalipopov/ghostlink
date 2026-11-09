@@ -7,7 +7,7 @@ import {
   quantize,
   rectBetween
 } from '../src/shared/coords'
-import { parseWindowRow } from '../src/shared/parse-windows'
+import { parseCursorRow, parseWindowRow } from '../src/shared/parse-windows'
 import {
   codeIsStrong,
   explainLinkError,
@@ -15,6 +15,23 @@ import {
   roomIdFromCode,
   unitPoint
 } from '../src/shared/protocol'
+
+describe('native cursor coordinates', () => {
+  it('preserves negative coordinates on displays left of or above the primary display', () => {
+    expect(parseCursorRow('-1920 300')).toEqual({ x: -1920, y: 300 })
+    expect(parseCursorRow('200 -1200')).toEqual({ x: 200, y: -1200 })
+    expect(parseCursorRow(' -1 -2\r\n')).toEqual({ x: -1, y: -2 })
+    expect(parseCursorRow('0 0')).toEqual({ x: 0, y: 0 })
+  })
+
+  it('rejects incomplete or malformed helper replies', () => {
+    expect(parseCursorRow('')).toBeNull()
+    expect(parseCursorRow('cursor 1 2')).toBeNull()
+    expect(parseCursorRow('1 -')).toBeNull()
+    expect(parseCursorRow('1.5 2')).toBeNull()
+    expect(parseCursorRow('9007199254740992 0')).toBeNull()
+  })
+})
 
 describe('play area coordinates', () => {
   const area = { x: 100, y: 50, width: 200, height: 100 }

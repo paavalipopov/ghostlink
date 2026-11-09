@@ -1,293 +1,226 @@
 import { spawn } from 'node:child_process'
+import { resolve } from 'node:path'
+import { mkdir, writeFile } from 'node:fs/promises'
+import assert from 'node:assert/strict'
+import { createServer } from 'node:net'
 
-const code = `check-${Date.now()}`
-
-const child = spawn('npx', ['electron-vite', 'dev', '--', '--no-sandbox'], {
-  env: { ...process.env, GHOSTLINK_DEBUG: '1' },
-  stdio: 'inherit',
-  detached: true
+const reservation = createServer()
+await new Promise((resolvePort, rejectPort) => {
+  reservation.once('error', rejectPort)
+  reservation.listen(0, '127.0.0.1', resolvePort)
 })
-
-let stopped = false
-async function stop(code = 0) {
-  if (stopped) return
-  stopped = true
-  try {
-    process.kill(-child.pid, 'SIGTERM')
-  } catch {
-    child.kill('SIGTERM')
-  }
-  process.exit(code)
-}
-
-process.on('SIGINT', () => void stop(1))
-child.on('exit', (status) => {
-  if (!stopped) {
-    console.error(`dev server exited early (${status})`)
-    void stop(1)
-  }
-})
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-async function targets() {
-  const response = await fetch('http://127.0.0.1:9333/json')
-  if (!response.ok) throw new Error(`debug port ${response.status}`)
-  return response.json()
-}
-
-async function waitFor(label, read, timeoutMs) {
+const port = reservation.address().port
+await new Promise((done) => reservation.close(done))
+const previewExe = process.argv[2]
+const child = spawn(
+  resolve(previewExe || 'node_modules/electron/dist/electron.exe'),
+  [
+    ...(!previewExe ? [resolve('out/main/index.js')] : []),
+    `--remote-debugging-port=${port}`,
+    '--remote-debugging-address=127.0.0.1',
+    `--user-data-dir=${resolve(`out/link-check/profile-${process.pid}`)}`
+  ],
+  { windowsHide: true, stdio: 'ignore', env: { ...process.env, GHOSTLINK_DEBUG: '0' } }
+)
+const sleep = (ms) => new Promise((done) => setTimeout(done, ms))
+async function waitFor(read, timeout = 30_000) {
   const start = Date.now()
   let last
-  while (Date.now() - start < timeoutMs) {
+  while (Date.now() - start < timeout) {
     try {
-      const value = await read()
-      if (value) return value
-      last = value
-    } catch (error) {
-      last = error instanceof Error ? error.message : String(error)
+      const result = await read()
+      if (result) return result
+    } catch (e) {
+      last = e
     }
-    await sleep(400)
+    await sleep(200)
   }
-  throw new Error(`timed out waiting for ${label}: ${last}`)
+  throw last || new Error('Timed out')
 }
-
-async function evaluate(wsUrl, expression) {
-  const ws = new WebSocket(wsUrl)
-  await new Promise((resolve, reject) => {
-    ws.addEventListener('open', resolve, { once: true })
-    ws.addEventListener('error', reject, { once: true })
+async function cdp(target, method, params) {
+  const ws = new WebSocket(target.webSocketDebuggerUrl)
+  await new Promise((res, rej) => {
+    ws.addEventListener('open', res, { once: true })
+    ws.addEventListener('error', rej, { once: true })
   })
-  let id = 0
-  const pending = new Map()
-  ws.addEventListener('message', (event) => {
-    const message = JSON.parse(event.data)
-    const done = pending.get(message.id)
-    if (done) {
-      pending.delete(message.id)
-      done(message)
-    }
-  })
-  const send = (method, params = {}) =>
-    new Promise((resolve) => {
-      const msgId = ++id
-      pending.set(msgId, resolve)
-      ws.send(JSON.stringify({ id: msgId, method, params }))
+  const response = new Promise((res, rej) => {
+    const timer = setTimeout(() => {
+      ws.close()
+      rej(new Error(`CDP timeout: ${method}`))
+    }, 15_000)
+    ws.addEventListener('message', (event) => {
+      const value = JSON.parse(event.data)
+      if (value.id === 1) {
+        clearTimeout(timer)
+        res(value)
+      }
     })
-  await send('Runtime.enable')
-  const response = await send('Runtime.evaluate', {
-    expression,
-    awaitPromise: true,
-    returnByValue: true
   })
+  ws.send(JSON.stringify({ id: 1, method, params }))
+  const result = await response
   ws.close()
-  if (response.result?.exceptionDetails) {
-    throw new Error(JSON.stringify(response.result.exceptionDetails))
-  }
-  return response.result?.result?.value
+  if (result.error) throw new Error(JSON.stringify(result.error))
+  return result.result
 }
-
-let failed = false
+async function evaluate(target, expression) {
+  const result = await cdp(target, 'Runtime.evaluate', {
+    expression,
+    returnByValue: true,
+    awaitPromise: true
+  })
+  if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails))
+  return result.result.value
+}
+async function page(name) {
+  return waitFor(async () => {
+    const r = await fetch(`http://127.0.0.1:${port}/json/list`)
+    return (await r.json()).find((p) => p.type === 'page' && p.url.includes(name))
+  })
+}
+let main
 try {
-  const pages = await waitFor(
-    'Ghostlink window',
-    async () => {
-      const list = await targets()
-      return list.find(
-        (target) =>
-          target.type === 'page' &&
-          !target.url.includes('pad.html') &&
-          !target.url.includes('overlay.html') &&
-          !target.url.startsWith('devtools://')
-      )
-    },
-    45000
+  await mkdir(resolve('out/link-check'), { recursive: true })
+  main = await page('index.html')
+  await waitFor(() => evaluate(main, `!!document.querySelector('[data-testid="open-pad"]')`))
+  assert.equal((await evaluate(main, 'window.api.hookStatus()')).live, true)
+  assert.equal(
+    await evaluate(main, `document.querySelector('[data-testid="connect"]').dataset.mode`),
+    'idle'
   )
-
-  console.log(`main page ${pages.url}`)
-
+  const area = { x: 120, y: 100, width: 480, height: 320 }
+  assert.equal(await evaluate(main, `window.api.restorePlayArea(${JSON.stringify(area)})`), true)
+  assert.equal(
+    await evaluate(main, `document.querySelector('[data-testid="open-pad"]').disabled`),
+    false
+  )
+  await evaluate(main, `document.querySelector('[data-testid="open-pad"]').click()`)
+  const pad = await page('pad.html'),
+    overlay = await page('overlay.html')
+  await waitFor(() =>
+    evaluate(pad, `document.querySelector('[data-testid="pad-surface"]') !== null`)
+  )
+  console.log('Test opened with no username, secret or Connect click.')
+  const layout = await evaluate(
+    pad,
+    `(() => {
+    const surface = document.querySelector('[data-testid="pad-surface"]').getBoundingClientRect()
+    return { width: innerWidth, height: innerHeight, surfaceHeight: surface.height,
+      bottom: surface.bottom, overflow: document.documentElement.scrollWidth > innerWidth }
+  })()`
+  )
+  assert.ok(layout.width <= 360 && layout.height <= 350)
+  assert.ok(layout.surfaceHeight > 80 && layout.bottom <= layout.height && !layout.overflow)
+  console.log('Compact trackpad fits without overflow:', JSON.stringify(layout))
+  console.log(
+    'Selected area:',
+    await evaluate(pad, `document.querySelector('[data-testid="pad-area"]').textContent`)
+  )
   await waitFor(
-    'name field',
-    async () => {
-      const value = await evaluate(
-        pages.webSocketDebuggerUrl,
-        `document.querySelector('[data-testid=name-input]') ? 'ready' : ''`
-      )
-      return value === 'ready' ? value : ''
-    },
-    20000
+    () =>
+      evaluate(
+        pad,
+        `document.querySelector('[data-testid="pad-status"]').dataset.phase === 'linked'`
+      ),
+    50_000
   )
-
-  const armed = await evaluate(
-    pages.webSocketDebuggerUrl,
-    `(() => {
-    const setInput = (selector, value) => {
-      const el = document.querySelector(selector)
-      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
-      setter.call(el, value)
-      el.dispatchEvent(new Event('input', { bubbles: true }))
-    }
-    setInput('[data-testid=name-input]', 'Ada')
-    setInput('[data-testid=code-input]', ${JSON.stringify(code)})
-    return document.querySelector('[data-testid=code-input]').value
-  })()`
+  console.log('Real private WebRTC test peer connected.')
+  assert.equal(
+    await evaluate(pad, `document.querySelector('[data-testid="pad-relays"]').dataset.state`),
+    'live'
   )
-  console.log(`typed ${armed}`)
-
-  await sleep(300)
-
-  const clicked = await evaluate(
-    pages.webSocketDebuggerUrl,
-    `(() => {
-    const button = document.querySelector('[data-testid=connect]')
-    if (button.disabled) return 'disabled'
-    button.click()
-    return 'clicked'
-  })()`
+  assert.equal(
+    await evaluate(main, `document.querySelector('[data-testid="connect"]').dataset.mode`),
+    'idle'
   )
-  if (clicked !== 'clicked') throw new Error(`connect button was ${clicked}`)
-  console.log('connect clicked')
-
-  await sleep(300)
-  const opened = await evaluate(
-    pages.webSocketDebuggerUrl,
-    `(() => {
-    const button = document.querySelector('[data-testid=open-pad]')
-    if (!button || button.disabled) return 'disabled'
-    button.click()
-    return 'opened'
-  })()`
-  )
-  if (opened !== 'opened') throw new Error(`test seat button was ${opened}`)
-  console.log('test seat opened')
-
-  const pad = await waitFor(
-    'test seat',
-    async () => {
-      const list = await targets()
-      return list.find((target) => target.type === 'page' && target.url.includes('pad.html'))
-    },
-    20000
-  )
-  console.log(`pad page ${pad.url}`)
-
-  const linked = await waitFor(
-    'direct link',
-    async () => {
-      const phase = await evaluate(
-        pad.webSocketDebuggerUrl,
-        `document.querySelector('[data-testid=pad-status]')?.dataset.phase ?? ''`
-      )
-      return phase === 'linked' ? phase : ''
-    },
-    30000
-  )
-  console.log(`pad phase ${linked}`)
-
-  const moved = await evaluate(
-    pad.webSocketDebuggerUrl,
-    `(() => {
-    const el = document.querySelector('[data-testid=pad-surface]')
-    const rect = el.getBoundingClientRect()
-    const x = rect.left + rect.width * 0.25
-    const y = rect.top + rect.height * 0.4
-    el.dispatchEvent(new PointerEvent('pointermove', {
-      bubbles: true,
-      clientX: x,
-      clientY: y,
-      pointerId: 1,
-      pointerType: 'mouse',
-      isPrimary: true
-    }))
-    return 'moved'
-  })()`
-  )
-  console.log(moved)
-
-  const overlay = await waitFor(
-    'overlay',
-    async () => {
-      const list = await targets()
-      return list.find((target) => target.type === 'page' && target.url.includes('overlay.html'))
-    },
-    20000
-  )
-
-  const mainLive = await waitFor(
-    'main monitor',
-    async () => {
-      const state = await evaluate(
-        pages.webSocketDebuggerUrl,
-        `document.querySelector('[data-testid=monitor]')?.dataset.state ?? ''`
-      )
-      return state === 'live' ? state : ''
-    },
-    30000
-  )
-  console.log(`main monitor ${mainLive}`)
-
-  const ghost = await waitFor(
-    'ghost on the overlay',
-    async () => {
-      const value = await evaluate(
-        overlay.webSocketDebuggerUrl,
-        `(() => {
-      const ghost = document.querySelector('[data-testid=overlay-ghost]')
-      if (!ghost) return ''
-      return ghost.dataset.name + ' ' + ghost.dataset.x + ' ' + ghost.dataset.y
-    })()`
-      )
-      return value && value.startsWith('Test seat') ? value : ''
-    },
-    10000
-  )
-
-  console.log(`ghost ${ghost}`)
-  const parts = ghost.trim().split(' ')
-  const ny = Number(parts.at(-1))
-  const nx = Number(parts.at(-2))
-  if (Math.abs(nx - 0.25) > 0.02 || Math.abs(ny - 0.4) > 0.02) {
-    throw new Error(`ghost landed at ${nx}, ${ny}`)
-  }
-
   await evaluate(
-    pad.webSocketDebuggerUrl,
+    pad,
     `(() => {
-    const el = document.querySelector('[data-testid=pad-surface]')
-    const rect = el.getBoundingClientRect()
-    el.dispatchEvent(new PointerEvent('pointerdown', {
-      bubbles: true,
-      button: 0,
-      buttons: 1,
-      clientX: rect.left + rect.width * 0.25,
-      clientY: rect.top + rect.height * 0.4,
-      pointerId: 1,
-      pointerType: 'mouse',
-      isPrimary: true
-    }))
-    return 'clicked'
+    const node=document.querySelector('[data-testid="pad-surface"]'),r=node.getBoundingClientRect()
+    node.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,clientX:r.x+r.width*.25,clientY:r.y+r.height*.4,pointerId:1,pointerType:'mouse'}))
   })()`
   )
-
-  const ping = await waitFor(
-    'click color',
-    async () => {
-      const flash = await evaluate(
-        overlay.webSocketDebuggerUrl,
-        `document.querySelector('[data-testid=overlay-ghost]')?.dataset.flash ?? ''`
-      )
-      return flash === '1' ? flash : ''
-    },
-    5000
+  const ghost = await waitFor(() =>
+    evaluate(
+      overlay,
+      `(() => {const g=document.querySelector('[data-testid="overlay-ghost"][data-name="Test user"]');return g?{x:Number(g.dataset.x),y:Number(g.dataset.y),left:parseFloat(g.style.left),top:parseFloat(g.style.top)}:null})()`
+    )
   )
-  console.log(`click color ${ping}`)
-
-  console.log('link check passed')
+  assert.ok(Math.abs(ghost.x - 0.25) < 0.01 && Math.abs(ghost.y - 0.4) < 0.01)
+  const frame = await evaluate(
+    overlay,
+    `(() => {const r=document.querySelector('.frame');return {x:parseFloat(r.style.left),y:parseFloat(r.style.top),w:parseFloat(r.style.width),h:parseFloat(r.style.height)}})()`
+  )
+  assert.ok(Math.abs(ghost.left - (frame.x + frame.w * 0.25)) < 2)
+  assert.ok(Math.abs(ghost.top - (frame.y + frame.h * 0.4)) < 2)
+  console.log('Small test surface mapped correctly into selected area:', JSON.stringify(ghost))
+  await evaluate(
+    pad,
+    `(() => {const n=document.querySelector('[data-testid="pad-surface"]'),r=n.getBoundingClientRect();n.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,clientX:r.x+r.width*.25,clientY:r.y+r.height*.4,pointerId:1,pointerType:'mouse'}))})()`
+  )
+  await waitFor(() =>
+    evaluate(
+      overlay,
+      `document.querySelector('[data-testid="overlay-ghost"][data-name="Test user"]')?.dataset.flash === '1'`
+    )
+  )
+  console.log('Click traveled over the peer connection and blinked the overlay pointer.')
+  assert.equal(
+    await evaluate(
+      pad,
+      `document.querySelectorAll('[data-testid="pad-cursor"], [data-testid="stage-ghost"]').length`
+    ),
+    0
+  )
+  const shot = await cdp(pad, 'Page.captureScreenshot', { format: 'png' })
+  await writeFile(resolve('out/link-check/test-peer.png'), Buffer.from(shot.data, 'base64'))
+  await evaluate(
+    pad,
+    `(() => {const n=document.querySelector('[data-testid="pad-surface"]');n.dispatchEvent(new PointerEvent('pointerout',{bubbles:true,relatedTarget:document.body,pointerType:'mouse'}))})()`
+  )
+  await waitFor(() =>
+    evaluate(
+      overlay,
+      `!document.querySelector('[data-testid="overlay-ghost"][data-name="Test user"]')`
+    )
+  )
+  await evaluate(pad, 'window.close()')
+  await sleep(600)
+  assert.deepEqual(await evaluate(main, 'window.api.getPlayArea()'), area)
+  assert.equal(
+    await evaluate(main, `document.querySelector('[data-testid="connect"]').dataset.mode`),
+    'idle'
+  )
+  console.log('Closing the test preserves the selected area and normal connection state.')
 } catch (error) {
-  failed = true
+  try {
+    const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()
+    for (const p of list.filter((p) => p.url.includes('pad.html'))) {
+      console.error(
+        'Diagnostic:',
+        await evaluate(
+          p,
+          `({phase:document.querySelector('[data-testid="pad-status"]')?.dataset.phase,relays:document.querySelector('[data-testid="pad-relays"]')?.outerHTML,peer:document.querySelector('[data-testid="pad-peer"]')?.outerHTML})`
+        )
+      )
+    }
+  } catch {
+    // The application may already have exited after a failed check.
+  }
   console.error(error)
+  process.exitCode = 1
 } finally {
-  await stop(failed ? 1 : 0)
+  if (main)
+    try {
+      await evaluate(main, 'window.close()')
+    } catch {
+      // Fall back to stopping only the process tree launched by this test.
+    }
+  await sleep(1000)
+  if (child.exitCode === null) {
+    const kill = spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+      windowsHide: true,
+      stdio: 'ignore'
+    })
+    await new Promise((done) => kill.once('exit', done))
+  }
 }

@@ -47,6 +47,7 @@ const api: GhostlinkApi = {
   onGhostMarks: (cb) => subscribe(CH.marksState, cb),
   hookStatus: () => ipcRenderer.invoke(CH.hook),
   openPad: (launch: PadLaunch) => ipcRenderer.invoke(CH.pad, launch),
+  onPadClosed: (cb) => subscribe(CH.padClosed, cb),
   getUpdateState: () => ipcRenderer.invoke(CH.updateGet),
   checkForUpdates: () => ipcRenderer.invoke(CH.updateCheck),
   restartAndUpdate: () => ipcRenderer.invoke(CH.updateInstall),

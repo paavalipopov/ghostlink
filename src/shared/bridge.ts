@@ -43,6 +43,7 @@ export const CH = {
   linked: 'link:live',
   overlay: 'overlay:state',
   pad: 'pad:open',
+  padClosed: 'pad:closed',
   fit: 'window:fit',
   marksGet: 'marks:get',
   marksSet: 'marks:set',
@@ -77,6 +78,7 @@ export type GhostlinkApi = {
   onGhostMarks: (cb: (on: boolean) => void) => () => void
   hookStatus: () => Promise<HookStatus>
   openPad: (launch: PadLaunch) => Promise<void>
+  onPadClosed: (cb: () => void) => () => void
   getUpdateState: () => Promise<UpdateState>
   checkForUpdates: () => Promise<void>
   restartAndUpdate: () => Promise<boolean>

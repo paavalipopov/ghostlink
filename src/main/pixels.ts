@@ -1,6 +1,7 @@
 import { screen } from 'electron'
 import type { Bounds, Point } from '../shared/coords'
 import { askWin32 } from './win32'
+import { parseCursorRow } from '../shared/parse-windows'
 
 let cursorAlreadyPhysical = process.platform === 'win32'
 
@@ -8,9 +9,7 @@ async function readWin32Cursor(): Promise<Point | null> {
   if (process.platform !== 'win32') return null
   try {
     const line = await askWin32('cursor')
-    const match = /(\d+)\s+(\d+)/.exec(line)
-    if (!match) return null
-    return { x: Number(match[1]), y: Number(match[2]) }
+    return parseCursorRow(line)
   } catch {
     return null
   }

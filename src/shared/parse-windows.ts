@@ -7,6 +7,13 @@ export type RawWindow = {
   height: number
 }
 
+export function parseCursorRow(line: string): { x: number; y: number } | null {
+  const match = /^(-?\d+)\s+(-?\d+)$/.exec(line.trim())
+  if (!match) return null
+  const point = { x: Number(match[1]), y: Number(match[2]) }
+  return Number.isSafeInteger(point.x) && Number.isSafeInteger(point.y) ? point : null
+}
+
 function keep(window: RawWindow): boolean {
   if (!window.title || /^ghostlink\b/i.test(window.title)) return false
   if (window.width < 80 || window.height < 80) return false

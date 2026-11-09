@@ -22,6 +22,14 @@ Other people pointer's appears only inside the rectangle on your screen. This re
 - Click **Drag frame**, then drag a rectangle.
 - Click **Pick window**, move the pointer over a window, and wait through the countdown. The rectangle becomes that window.
 
+## Test your pointer
+
+The bug button opens a compact private test trackpad automatically; no username, secret, or Connect click is needed. Move or click in its test surface to control a colored **Test user** pointer in your selected shared area. The trackpad does not draw additional pointers inside its window. Closing the test window ends the test without changing your selected area or normal connection.
+
+The test window uses the same indicators as the main panel: blinking while connecting, green when connected, and red if the check fails. **Relays** reports reachable signaling-server sockets; **Test peer** reports the actual WebRTC connection to the main panel. This local test does not prove a connection through another computer's firewall.
+
+`npm run test:link` builds and checks the two local peers through real signaling servers, verifies movement/clicks in a selected area, and checks that closing the test preserves the area and normal connection state. It needs a Windows desktop and internet access.
+
 ## Build
 
 On Windows, from this folder:

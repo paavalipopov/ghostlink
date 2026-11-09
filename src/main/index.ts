@@ -198,6 +198,7 @@ function sendMarks(win: BrowserWindow | null): void {
 function publishArea(note: string | null = null): void {
   watch.current?.resync()
   sendControl(CH.playArea, playArea)
+  if (pad && !pad.isDestroyed()) pad.webContents.send(CH.playArea, playArea)
   sendControl(CH.playNote, note)
   pushOverlay()
 }
@@ -713,15 +714,6 @@ function createOverlay(): void {
 }
 
 function showPad(win: BrowserWindow): void {
-  const area = screen.getPrimaryDisplay().workArea
-  const width = 720
-  const height = 520
-  win.setBounds({
-    x: Math.round(area.x + Math.max(0, (area.width - width) / 2)),
-    y: Math.round(area.y + Math.max(0, (area.height - height) / 2)),
-    width,
-    height
-  })
   win.setAlwaysOnTop(true, 'screen-saver')
   win.show()
   win.moveTop()
@@ -736,10 +728,12 @@ function openPad(launch: PadLaunch): void {
     return
   }
   pad = new BrowserWindow({
-    width: 720,
-    height: 520,
-    minWidth: 480,
-    minHeight: 360,
+    width: 330,
+    height: 350,
+    minWidth: 320,
+    minHeight: 320,
+    resizable: false,
+    maximizable: false,
     show: false,
     title: 'Ghostlink test seat',
     backgroundColor: '#141210',
@@ -747,6 +741,7 @@ function openPad(launch: PadLaunch): void {
     icon,
     webPreferences: windowPrefs()
   })
+  pad.center()
   denyNavigation(pad)
   pad.webContents.setBackgroundThrottling(false)
   pad.webContents.on('did-finish-load', () => {
@@ -757,6 +752,7 @@ function openPad(launch: PadLaunch): void {
   })
   pad.on('closed', () => {
     pad = null
+    sendControl(CH.padClosed, null)
   })
   loadPage(pad, page)
 }
@@ -830,7 +826,12 @@ function registerIpc(): void {
     shareSamples = Boolean(linked)
   })
   ipcMain.on(CH.fit, (event, size: unknown) => {
-    if (!fromControl(event.sender.id) || !control || control.isDestroyed()) return
+    const win = fromControl(event.sender.id)
+      ? control
+      : event.sender.id === pad?.webContents.id
+        ? pad
+        : null
+    if (!win || win.isDestroyed()) return
     if (!size || typeof size !== 'object') return
     const next = size as { width?: unknown; height?: unknown }
     if (typeof next.width !== 'number' || typeof next.height !== 'number') return
@@ -838,9 +839,9 @@ function registerIpc(): void {
     const width = Math.round(next.width)
     const height = Math.round(next.height)
     if (width < 240 || height < 200 || width > 640 || height > 900) return
-    const [currentWidth, currentHeight] = control.getContentSize()
-    if (currentWidth !== width || currentHeight !== height) control.setContentSize(width, height)
-    showControl()
+    const [currentWidth, currentHeight] = win.getContentSize()
+    if (currentWidth !== width || currentHeight !== height) win.setContentSize(width, height)
+    if (win === control) showControl()
   })
   ipcMain.on(CH.frame, (event, show: boolean) => {
     if (event.sender.id !== control?.webContents.id) return

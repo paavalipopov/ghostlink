@@ -81,6 +81,14 @@ export function IconWindow(): JSX.Element {
   )
 }
 
+export function IconUpdate(): JSX.Element {
+  return (
+    <Stroke>
+      <path d="M8 2v7M5 6l3 3 3-3M3 10.5V13h10v-2.5" />
+    </Stroke>
+  )
+}
+
 export function IconBug(): JSX.Element {
   return (
     <svg data-testid="ladybug" width="22" height="22" viewBox="0 0 16 16" aria-hidden="true">

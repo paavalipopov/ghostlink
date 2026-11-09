@@ -2,18 +2,20 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type 
 import { version } from '../../../package.json'
 import type { UpdateState } from '../../shared/bridge'
 import type { Bounds } from '../../shared/coords'
-import {
-  ERROR_COLOR,
-  IDLE_RING,
-  LIVE_COLOR,
-  codeIsStrong,
-  makeCode,
-  makePingId
-} from '../../shared/protocol'
+import { codeIsStrong, makeCode, makePingId } from '../../shared/protocol'
 import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
 import { useGhostLink, type LinkPhase, type LinkSettings } from './link'
-import { GhostMark, IconDice, IconBug, IconDrag, IconFullScreen, IconWindow } from './icons'
+import { StatusDot } from './StatusDot'
+import {
+  GhostMark,
+  IconDice,
+  IconBug,
+  IconDrag,
+  IconFullScreen,
+  IconWindow,
+  IconUpdate
+} from './icons'
 
 function stored(key: string, fallback: string): string {
   try {
@@ -85,13 +87,13 @@ function updatePresentation(state: UpdateState): {
 } {
   switch (state.phase) {
     case 'checking':
-      return { status: 'Checking for updates', action: 'Checking…', busy: true }
+      return { status: 'Checking for updates', action: 'Checking for updates', busy: true }
     case 'available':
-      return { status: `Version ${state.version} found`, action: 'Downloading…', busy: true }
+      return { status: `Version ${state.version} found`, action: 'Downloading update', busy: true }
     case 'downloading':
       return {
         status: `Downloading version ${state.version}`,
-        action: `${state.percent}%`,
+        action: `Downloading update: ${state.percent}%`,
         busy: true
       }
     case 'ready':
@@ -101,48 +103,16 @@ function updatePresentation(state: UpdateState): {
         busy: false
       }
     case 'up-to-date':
-      return { status: `Version ${state.version} is current`, action: 'Check again', busy: false }
+      return {
+        status: `Version ${state.version} is current`,
+        action: 'Check for updates',
+        busy: false
+      }
     case 'error':
-      return { status: state.message, action: 'Retry', busy: false }
+      return { status: state.message, action: 'Retry update check', busy: false }
     default:
-      return { status: 'Application updates', action: 'Check', busy: false }
+      return { status: 'Application updates', action: 'Check for updates', busy: false }
   }
-}
-
-function LinkDot({
-  state,
-  title
-}: {
-  state: 'idle' | 'wait' | 'live' | 'error'
-  title: string
-}): JSX.Element {
-  if (state === 'wait') {
-    return (
-      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center">
-        <span
-          data-testid="monitor"
-          data-state={state}
-          title={title}
-          aria-label={title}
-          className="link-wait inline-block size-7 rounded-full border-2"
-        />
-      </span>
-    )
-  }
-  const color = state === 'live' ? LIVE_COLOR : state === 'error' ? ERROR_COLOR : 'transparent'
-  const border = state === 'idle' ? IDLE_RING : color
-  return (
-    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center">
-      <span
-        data-testid="monitor"
-        data-state={state}
-        title={title}
-        aria-label={title}
-        className="inline-block size-7 rounded-full border-2"
-        style={{ background: color, borderColor: border }}
-      />
-    </span>
-  )
 }
 
 function App(): JSX.Element {
@@ -164,6 +134,7 @@ function App(): JSX.Element {
   const [marking, setMarking] = useState(false)
   const [panelReady, setPanelReady] = useState(false)
   const [sessionCode, setSessionCode] = useState('')
+  const [testCode, setTestCode] = useState('')
   const [updateState, setUpdateState] = useState<UpdateState>({ phase: 'unsupported' })
 
   useEffect(() => {
@@ -182,6 +153,7 @@ function App(): JSX.Element {
 
   const settings: LinkSettings = { code: sessionCode }
   const link = useGhostLink(monitoring, settings)
+  const testLink = useGhostLink(Boolean(testCode), { code: testCode })
   const { publishMove, publishPing } = link
   const enabled = useRef(false)
   const nameRef = useRef('Friend')
@@ -191,6 +163,8 @@ function App(): JSX.Element {
   useEffect(() => {
     enabled.current = monitoring
   }, [monitoring])
+
+  useEffect(() => window.api.onPadClosed(() => setTestCode('')), [])
 
   useEffect(() => {
     const raw = stored('ghostlink.areaPx', '')
@@ -238,11 +212,8 @@ function App(): JSX.Element {
   }, [monitoring, publishMove])
 
   useEffect(() => {
-    if (!monitoring) {
-      window.api.setGhosts([])
-      return
-    }
-    const payload = Object.entries(link.ghosts).map(([id, ghost]) => ({
+    const ghosts = { ...(monitoring ? link.ghosts : {}), ...(testCode ? testLink.ghosts : {}) }
+    const payload = Object.entries(ghosts).map(([id, ghost]) => ({
       id,
       name: ghost.name,
       color: ghost.color,
@@ -251,7 +222,7 @@ function App(): JSX.Element {
       pings: ghost.pings.map((ping) => ({ id: ping.id, x: ping.x, y: ping.y }))
     }))
     window.api.setGhosts(payload)
-  }, [monitoring, link.ghosts])
+  }, [monitoring, link.ghosts, testCode, testLink.ghosts])
 
   const codeOk = codeIsStrong(code)
   const formOk = codeOk && name.trim().length > 0
@@ -259,6 +230,10 @@ function App(): JSX.Element {
   const dot = monitorState(monitoring, link.phase)
   const dotTitle = monitorTitle(dot, link.detail)
   const update = updatePresentation(updateState)
+  const updateAvailable =
+    updateState.phase === 'available' ||
+    updateState.phase === 'downloading' ||
+    updateState.phase === 'ready'
 
   useEffect(() => {
     window.api.setLinked(linked)
@@ -390,7 +365,7 @@ function App(): JSX.Element {
             <IconDice />
           </button>
         </div>
-        <LinkDot state={dot} title={dotTitle} />
+        <StatusDot state={dot} title={dotTitle} />
       </div>
 
       <div className="relative">
@@ -493,7 +468,34 @@ function App(): JSX.Element {
             Drag frame
           </Button>
         </div>
-        <div className="flex gap-1.5">
+        <div className="flex items-center gap-1.5">
+          <Button
+            type="button"
+            variant="ghost"
+            className={`size-9 shrink-0 rounded-full border border-border px-0 disabled:opacity-100 ${
+              updateState.phase === 'unsupported' ? 'invisible' : ''
+            } ${
+              updateAvailable
+                ? 'border-[#3dbe6a] bg-[#3dbe6a] text-[#1a140c] hover:bg-[#349e59]'
+                : 'bg-background text-foreground'
+            } ${updateState.phase === 'up-to-date' ? 'opacity-50 hover:opacity-100' : ''}`}
+            data-testid="update-action"
+            data-state={updateState.phase}
+            title={`${update.status}. ${update.action}`}
+            aria-label={update.action}
+            aria-busy={update.busy}
+            aria-hidden={updateState.phase === 'unsupported'}
+            disabled={update.busy || updateState.phase === 'unsupported'}
+            onClick={() => {
+              if (updateState.phase === 'ready') {
+                void window.api.restartAndUpdate()
+                return
+              }
+              void window.api.checkForUpdates()
+            }}
+          >
+            <IconUpdate />
+          </Button>
           <Button
             type="button"
             variant="secondary"
@@ -514,45 +516,18 @@ function App(): JSX.Element {
             data-testid="open-pad"
             title="Test run"
             aria-label="Test run"
-            disabled={!codeOk}
-            onClick={() => void window.api.openPad({ code: code.trim() })}
+            onClick={() => {
+              const next = testCode || makeCode()
+              setTestCode(next)
+              void window.api.openPad({ code: next }).catch(() => setTestCode(''))
+            }}
           >
             <IconBug />
           </Button>
         </div>
-      </section>
-
-      <section
-        data-testid="updater"
-        data-state={updateState.phase}
-        aria-hidden={updateState.phase === 'unsupported'}
-        className={`flex min-h-8 items-center gap-2 ${
-          updateState.phase === 'unsupported' ? 'invisible' : ''
-        }`}
-      >
-        <span
-          className="min-w-0 flex-1 truncate text-xs text-muted-foreground"
-          title={update.status}
-        >
+        <span className="sr-only" role="status">
           {update.status}
         </span>
-        <Button
-          type="button"
-          size="sm"
-          variant={updateState.phase === 'ready' ? 'default' : 'outline'}
-          className="shrink-0"
-          data-testid="update-action"
-          disabled={update.busy}
-          onClick={() => {
-            if (updateState.phase === 'ready') {
-              void window.api.restartAndUpdate()
-              return
-            }
-            void window.api.checkForUpdates()
-          }}
-        >
-          {update.action}
-        </Button>
       </section>
     </main>
   )
