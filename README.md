@@ -41,6 +41,8 @@ npm run build:win
 
 That writes `dist/Ghostlink-x.x.x-windows-setup.exe`. Run the installer, then open Ghostlink. Installed builds check GitHub Releases for updates after launch; when an update is ready, use **Restart and update** in the control panel.
 
+The installer lets you choose the installation folder. New installations default to all users under Program Files (administrator permission required); you can also choose a current-user installation. Upgrades remember the existing installation and folder. App information is linked on the welcome and finish pages. `Uninstall Ghostlink.exe` is included in the chosen installation folder, and Ghostlink also appears in Windows Installed apps. Uninstalling preserves your saved settings.
+
 `npm run dev` runs Ghostlink from source.
 
 ## Release

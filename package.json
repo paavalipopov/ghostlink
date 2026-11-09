@@ -4,6 +4,7 @@
   "description": "A ghost pointer shared between two copies of a game, with an optional click ping.",
   "main": "./out/main/index.js",
   "author": "Ghostlink",
+  "homepage": "https://github.com/paavalipopov/ghostlink",
   "repository": {
     "type": "git",
     "url": "https://github.com/paavalipopov/ghostlink.git"

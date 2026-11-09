@@ -32,6 +32,17 @@ win:
       arch:
         - x64
   artifactName: Ghostlink-${version}-windows-setup.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  selectPerMachineByDefault: true
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  include: build/installer.nsh
+  runAfterFinish: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  deleteAppDataOnUninstall: false
 publish:
   provider: github
   owner: paavalipopov
