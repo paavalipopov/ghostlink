@@ -35,9 +35,9 @@ win:
 nsis:
   oneClick: false
   perMachine: false
-  selectPerMachineByDefault: true
+  selectPerMachineByDefault: false
   allowElevation: true
-  allowToChangeInstallationDirectory: true
+  allowToChangeInstallationDirectory: false
   include: build/installer.nsh
   runAfterFinish: true
   createDesktopShortcut: true

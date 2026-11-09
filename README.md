@@ -41,7 +41,7 @@ npm run build:win
 
 That writes `dist/Ghostlink-x.x.x-windows-setup.exe`. Run the installer, then open Ghostlink. Installed builds check GitHub Releases for updates after launch; when an update is ready, use **Restart and update** in the control panel.
 
-Choose an installation folder in the setup wizard. The default is Program Files for all users (administrator permission required), with a current-user option available. Launch Ghostlink from its Desktop or Start menu shortcut. To uninstall, use Windows Installed apps or `Uninstall Ghostlink.exe` in the installation folder.
+Choose a folder on the first setup screen, then click **Install**. The default is your user AppData Programs folder. When setup finishes, choose **Close** or **Close and open Ghostlink**. Desktop and Start menu shortcuts are also available. To uninstall, use Windows Installed apps or `Uninstall Ghostlink.exe` in the installation folder.
 
 `npm run dev` runs Ghostlink from source.
 
