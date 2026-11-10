@@ -18,10 +18,18 @@ body,
 
 .point {
   position: absolute;
+  top: 0;
+  left: 0;
+  transition: transform 24ms linear;
 }
 
-.mark {
-  position: absolute;
-  left: 13px;
-  top: 13px;
+.point [data-mark='arrow'] {
+  /* The arrow tip is (5, 2.5) in a 24-unit viewBox drawn at 22px. */
+  transform: translate(calc(-5px * 22 / 24), calc(-2.5px * 22 / 24));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .point {
+    transition: none;
+  }
 }

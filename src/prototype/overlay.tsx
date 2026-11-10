@@ -27,16 +27,16 @@ function Overlay(): JSX.Element {
       {preview && (
         <div
           className="point"
-          style={{ left: `${preview.sample.x * 100}%`, top: `${preview.sample.y * 100}%` }}
+          key={preview.test ? 'test' : 'local'}
+          style={{
+            transform: `translate3d(${preview.sample.x * 100}vw, ${preview.sample.y * 100}vh, 0)`
+          }}
         >
-          <div className="crosshair" />
-          <div className="mark">
-            <CursorMark
-              name={preview.test ? 'Test user' : 'Local pointer'}
-              color={preview.test ? '#6cb6d9' : '#e2a14a'}
-              clickKey={preview.clickKey === null ? null : String(preview.clickKey)}
-            />
-          </div>
+          <CursorMark
+            name={preview.test ? 'Test user' : 'Local pointer'}
+            color={preview.test ? '#6cb6d9' : '#e2a14a'}
+            clickKey={preview.clickKey === null ? null : String(preview.clickKey)}
+          />
         </div>
       )}
     </div>

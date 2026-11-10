@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { useCallback, useEffect, useRef, useState, type JSX, type PointerEvent } from 'react'
 import { createRoot } from 'react-dom/client'
-import { isInside, normalize, quantize, type Bounds, type Point } from '../shared/coords'
+import { isInside, normalize, type Bounds, type Point } from '../shared/coords'
 import './panel.css'
 
 type Input = Point & { click: boolean }
@@ -14,7 +14,7 @@ function pointIn(event: PointerEvent<HTMLDivElement>): Point | null {
     { x: event.clientX, y: event.clientY },
     { x: left, y: top, width, height }
   )
-  return isInside(point) ? { x: quantize(point.x), y: quantize(point.y) } : null
+  return isInside(point) ? point : null
 }
 
 // This file mounts the trackpad as a Vite entry point.

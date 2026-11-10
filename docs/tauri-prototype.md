@@ -6,7 +6,7 @@ Open `src-tauri/target/x86_64-pc-windows-msvc/release/ghostlink-tauri-prototype.
 
 1. Choose a display and click **Full Screen** to use the entire display, or **Drag frame** to draw a rectangle. Press Esc in the picker to keep the previous frame.
 2. On Windows, click **Pick window** and point at another app before the three-second countdown ends. For a window that spans displays, Ghostlink uses the portion on the display under the pointer. If you move or resize the target window, pick it again.
-3. Check that the crosshair follows the pointer inside the frame and disappears outside. Move a separate app under the frame and click where the crosshair is visible. The app should receive the click. The panel reports the area in physical pixels. Click **Hide frame** to turn off the local preview.
+3. Check that the arrow tip follows the pointer inside the frame and disappears outside. Move a separate app under the frame and click through the arrow. The app should receive the click. The panel reports the area in physical pixels. Click **Hide frame** to turn off the local preview.
 4. Click **Test pointer** and move inside the trackpad to place the blue **Test user** pointer in the shared area. Click the trackpad to see it blink. Move the trackpad beside the area if it covers the marker. Close it or press Esc to return to tracing your real pointer in the same area.
 5. On a two-display setup, give the displays different scales and repeat on both. Move the secondary display to the left of and above the primary to test negative X and Y. Restart the prototype after changing display settings so it refreshes the display list.
 
