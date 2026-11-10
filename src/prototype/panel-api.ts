@@ -1,11 +1,17 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import type { PanelApi } from '@renderer/App'
+import type { UpdateState } from '../shared/bridge'
 import { quantize, type Bounds } from '../shared/coords'
 import type { Sample } from '../shared/protocol'
 
 type Display = { name: string; bounds: Bounds; scaleFactor: number; primary: boolean }
-export type Controls = { displays: Display[]; desktopAreas: boolean; pickWindow: boolean }
+export type Controls = {
+  appVersion: string
+  displays: Display[]
+  desktopAreas: boolean
+  pickWindow: boolean
+}
 type AreaChange = { area: Bounds | null; error: string | null }
 type PeerInput = { kind: 'move' | 'click'; session: number; sample: Sample | null }
 
@@ -158,6 +164,7 @@ export function createPanelApi(
       setMarking(true)
       report(null)
       try {
+        await invoke('prepare_pick_marker')
         for (const count of [3, 2, 1]) {
           await invoke('set_pick_count', { count })
           await new Promise((done) => window.setTimeout(done, 700))
@@ -183,13 +190,19 @@ export function createPanelApi(
       }
     },
     useDisplay: selectDisplayArea,
-    async openLocalPad() {
+    async openPad({ code }) {
       try {
-        await invoke('open_test_pad')
+        await invoke('open_test_pad', { code })
       } catch (error) {
         report(String(error))
+        throw error
       }
-    }
+    },
+    onPadClosed: (callback) => subscribe('test-pad-closed', callback),
+    getUpdateState: () => invoke<UpdateState>('get_update_state'),
+    onUpdateState: (callback) => subscribe<UpdateState>('update-state', callback),
+    checkForUpdates: () => invoke('check_for_updates'),
+    restartAndUpdate: () => invoke('restart_and_update')
   }
 
   return {

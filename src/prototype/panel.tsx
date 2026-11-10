@@ -2,7 +2,6 @@ import { invoke } from '@tauri-apps/api/core'
 import { useEffect, useState, type JSX } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from '@renderer/App'
-import { version } from '../../src-tauri/tauri.conf.json'
 import { createPanelApi, type Controls } from './panel-api'
 import './panel.css'
 
@@ -39,7 +38,7 @@ function Panel(): JSX.Element {
   return (
     <App
       api={bridge.api}
-      appVersion={version}
+      appVersion={controls.appVersion}
       canSelectArea={controls.desktopAreas && controls.displays.length > 0}
       canPickWindow={controls.pickWindow}
       areaNote={

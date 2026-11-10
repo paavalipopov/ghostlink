@@ -110,6 +110,12 @@ function updatePresentation(state: UpdateState): {
         action: 'Restart and update',
         busy: false
       }
+    case 'installing':
+      return {
+        status: `Installing version ${state.version}`,
+        action: 'Installing update',
+        busy: true
+      }
     case 'up-to-date':
       return {
         status: `Version ${state.version} is current`,
@@ -152,7 +158,6 @@ export type PanelApi = Pick<
     >
   > & {
     setSharing?: (active: boolean) => void
-    openLocalPad?: () => Promise<void>
   }
 
 type PanelProps = {
@@ -290,7 +295,8 @@ function App({
   const updateAvailable =
     updateState.phase === 'available' ||
     updateState.phase === 'downloading' ||
-    updateState.phase === 'ready'
+    updateState.phase === 'ready' ||
+    updateState.phase === 'installing'
 
   useEffect(() => {
     api.setLinked?.(linked)
@@ -527,13 +533,11 @@ function App({
           </Button>
         </div>
         <div className="flex items-center gap-1.5">
-          {api.getUpdateState && (
+          {updateState.phase !== 'unsupported' && (
             <Button
               type="button"
               variant="ghost"
               className={`size-9 shrink-0 rounded-full border border-border px-0 disabled:opacity-100 ${
-                updateState.phase === 'unsupported' ? 'invisible' : ''
-              } ${
                 updateAvailable
                   ? 'border-[#3dbe6a] bg-[#3dbe6a] text-[#1a140c] hover:bg-[#349e59]'
                   : 'bg-background text-foreground'
@@ -543,8 +547,7 @@ function App({
               title={`${update.status}. ${update.action}`}
               aria-label={update.action}
               aria-busy={update.busy}
-              aria-hidden={updateState.phase === 'unsupported'}
-              disabled={update.busy || updateState.phase === 'unsupported'}
+              disabled={update.busy}
               onClick={() => {
                 if (updateState.phase === 'ready') {
                   void api.restartAndUpdate?.()
@@ -578,10 +581,6 @@ function App({
             aria-label="Test run"
             disabled={!canSelectArea}
             onClick={() => {
-              if (api.openLocalPad) {
-                void api.openLocalPad()
-                return
-              }
               const next = testCode || makeCode()
               setTestCode(next)
               void api.openPad?.({ code: next }).catch(() => setTestCode(''))

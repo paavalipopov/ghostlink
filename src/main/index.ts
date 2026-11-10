@@ -1,18 +1,9 @@
-import {
-  app,
-  BrowserWindow,
-  desktopCapturer,
-  globalShortcut,
-  ipcMain,
-  screen,
-  shell,
-  type Display
-} from 'electron'
+import { app, BrowserWindow, desktopCapturer, ipcMain, screen, shell, type Display } from 'electron'
 import { join } from 'path'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { CH, type PadLaunch } from '../shared/bridge'
-import { applyCorner, isInside, normalize, project, quantize, type Bounds } from '../shared/coords'
+import { applyCorner, project, type Bounds } from '../shared/coords'
 import {
   MAX_PEERS,
   MAX_PING_ID,
@@ -857,28 +848,6 @@ function registerIpc(): void {
   })
 }
 
-function registerShortcuts(hookLive: boolean): void {
-  globalShortcut.register('Control+Alt+1', () => {
-    playArea = applyCorner(playArea, 'top-left', pointerPhysical())
-    publishArea(null)
-  })
-  globalShortcut.register('Control+Alt+2', () => {
-    playArea = applyCorner(playArea, 'bottom-right', pointerPhysical())
-    publishArea(null)
-  })
-  if (!hookLive) {
-    globalShortcut.register('Control+Alt+P', () => {
-      const normalized = normalize(pointerPhysical(), playArea)
-      if (!isInside(normalized)) return
-      sendControl(CH.click, {
-        x: quantize(normalized.x),
-        y: quantize(normalized.y),
-        inside: true
-      })
-    })
-  }
-}
-
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('app.ghostlink.desktop')
   app.on('browser-window-created', (_, window) => {
@@ -902,7 +871,6 @@ app.whenReady().then(() => {
     onClick: (sample) => sendControl(CH.click, sample),
     onCursor: () => pushOverlay()
   })
-  registerShortcuts(watch.current.status.live)
   void ensureWin32().then(() => calibratePointer())
 
   screen.on('display-metrics-changed', () => {
@@ -913,7 +881,6 @@ app.whenReady().then(() => {
 
 app.on('will-quit', () => {
   updates?.dispose()
-  globalShortcut.unregisterAll()
   watch.current?.stop()
   stopWin32()
 })

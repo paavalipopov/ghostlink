@@ -33,7 +33,7 @@ function attachHook(onClick: () => void): { hook: MouseHook | null; status: Hook
       hook: null,
       status: {
         live: false,
-        detail: `Click color uses Ctrl+Alt+P. ${error instanceof Error ? error.message : 'Mouse hook unavailable.'}`
+        detail: `Click pings are unavailable. ${error instanceof Error ? error.message : 'Mouse hook unavailable.'}`
       }
     }
   }

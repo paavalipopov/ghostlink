@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Ghostlink Tauri Prototype",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "identifier": "app.ghostlink.tauriprototype",
   "build": {
     "beforeDevCommand": "npm run prototype:ui:dev",
@@ -47,6 +47,23 @@
         "resizable": false
       },
       {
+        "label": "pick-marker",
+        "create": false,
+        "title": "Ghostlink Pick Marker",
+        "url": "pick-marker.html",
+        "width": 22,
+        "height": 22,
+        "decorations": false,
+        "shadow": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "focus": false,
+        "focusable": false,
+        "visible": false,
+        "skipTaskbar": true,
+        "resizable": false
+      },
+      {
         "label": "test-pad",
         "title": "Ghostlink Test Trackpad",
         "url": "test-pad.html",
@@ -61,6 +78,13 @@
     ],
     "security": {
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost wss://0x-nostr-relay.fly.dev wss://bendernostur.duckdns.org:8443 wss://cdn.satellite.earth wss://nos.lol wss://nostr.chaima.info wss://nostr.christiansass.de wss://nostr.rblb.it wss://nostr.red5d.dev wss://nostr.robosats.org wss://nostr.stakey.net wss://nostrcity-club.fly.dev wss://relay-dev.gulugulu.moe wss://relay.aarpia.com wss://relay.agentry.com wss://relay.bitmacro.cloud wss://relay.bullishbounty.com wss://relay.degmods.com wss://relay.flashapp.me wss://relay.grigic.org wss://relay.hackshed.dev wss://relay.kaleidoswap.com wss://relay.layer.systems wss://relay.nostr.blockhenge.com wss://relay.nostr.dev.br wss://relay.nostrmap.net wss://relay.novospes.com wss://relay.piazza.today wss://relay.routstr.com wss://testr.nymble.world"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "",
+      "requireSignedVersion": true,
+      "windows": { "installMode": "passive" }
     }
   },
   "bundle": {

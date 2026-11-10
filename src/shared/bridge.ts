@@ -20,6 +20,7 @@ export type UpdateState =
   | { phase: 'available'; version: string }
   | { phase: 'downloading'; version: string; percent: number }
   | { phase: 'ready'; version: string }
+  | { phase: 'installing'; version: string }
   | { phase: 'up-to-date'; version: string }
   | { phase: 'error'; message: string }
 

@@ -4,15 +4,16 @@ mod geometry;
 mod peer;
 mod platform;
 mod preview;
+mod updates;
 
-use geometry::{Bounds, Drag, Sample};
+use geometry::{Bounds, Drag, Point, Sample};
 use peer::{PeerInput, PeerPointer, QueuedClick};
 use preview::{PadInput, TestPad};
 use serde::Serialize;
 use std::{
     sync::{
         mpsc::{self, Receiver, SyncSender},
-        Mutex,
+        Arc, Mutex,
     },
     thread,
     time::Duration,
@@ -28,6 +29,8 @@ struct Selection {
     drag: Option<Bounds>,
     test_pad: TestPad,
     peer_session: Option<u32>,
+    pick_displays: Option<Arc<[Display]>>,
+    pad_code: Option<String>,
 }
 
 type Capture = Mutex<Selection>;
@@ -44,6 +47,7 @@ struct Display {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Controls {
+    app_version: String,
     displays: Vec<Display>,
     desktop_areas: bool,
     pick_window: bool,
@@ -90,6 +94,7 @@ fn require_panel(window: &WebviewWindow) -> Result<(), String> {
 fn controls(window: WebviewWindow) -> Result<Controls, String> {
     require_panel(&window)?;
     Ok(Controls {
+        app_version: window.app_handle().package_info().version.to_string(),
         displays: list_displays(&window).map_err(|error| error.to_string())?,
         desktop_areas: platform::desktop_areas_available(),
         pick_window: cfg!(windows),
@@ -210,7 +215,7 @@ fn restore_area(window: WebviewWindow, bounds: Bounds) -> Result<AreaChange, Str
 }
 
 #[tauri::command]
-fn fit_panel(window: WebviewWindow, width: u32, height: u32) -> Result<(), String> {
+async fn fit_panel(window: WebviewWindow, width: u32, height: u32) -> Result<(), String> {
     require_panel(&window)?;
     if !(240..=640).contains(&width) || !(200..=900).contains(&height) {
         return Err("Invalid panel size.".into());
@@ -234,12 +239,74 @@ fn set_ghost_marks(window: WebviewWindow, enabled: bool) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn prepare_pick_marker(window: WebviewWindow) -> Result<(), String> {
+    require_panel(&window)?;
+    let app = window.app_handle();
+    if app.get_webview_window("pick-marker").is_none() {
+        let config = app
+            .config()
+            .app
+            .windows
+            .iter()
+            .find(|config| config.label == "pick-marker")
+            .ok_or("Pick marker configuration is missing.")?;
+        tauri::WebviewWindowBuilder::from_config(app, config)
+            .and_then(|builder| builder.build())
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn set_pick_count(window: WebviewWindow, count: Option<u8>) -> Result<(), String> {
     require_panel(&window)?;
+    let app = window.app_handle();
+    let marker = app
+        .get_webview_window("pick-marker")
+        .ok_or("Pick marker is missing.")?;
+    let state = app.state::<Capture>();
+    let marker_visible = state.lock().unwrap().pick_displays.is_some();
+    if count.is_none() {
+        state.lock().unwrap().pick_displays = None;
+        platform::set_overlay_visible(&marker, false)?;
+    } else if !marker_visible {
+        let displays = list_displays(&window).map_err(|error| error.to_string())?;
+        let point = platform::cursor(app).ok_or("Could not read the desktop pointer.")?;
+        marker
+            .set_ignore_cursor_events(true)
+            .map_err(|error| error.to_string())?;
+        marker
+            .set_position(pick_marker_position(point, &displays))
+            .map_err(|error| error.to_string())?;
+        platform::set_overlay_visible(&marker, true)?;
+        state.lock().unwrap().pick_displays = Some(displays.into());
+    }
     window
         .app_handle()
         .emit_to(EventTarget::webview_window("overlay"), "pick-count", count)
         .map_err(|error| error.to_string())
+}
+
+fn pick_marker_position(point: Point, displays: &[Display]) -> PhysicalPosition<i32> {
+    let Some(display) = displays
+        .iter()
+        .find(|display| display.bounds.sample(point).inside)
+    else {
+        return PhysicalPosition::new(point.x + 16, point.y - 8);
+    };
+    let scale = display.scale_factor;
+    let size = (22.0 * scale).ceil() as i32;
+    let gap = (14.0 * scale).round() as i32;
+    let bounds = display.bounds;
+    let right = bounds.x + bounds.width as i32;
+    let bottom = bounds.y + bounds.height as i32;
+    let x = if point.x + gap + size <= right {
+        point.x + gap
+    } else {
+        point.x - gap - size
+    };
+    let y = (point.y - size / 2).clamp(bounds.y, (bottom - size).max(bounds.y));
+    PhysicalPosition::new(x.max(bounds.x), y)
 }
 
 #[tauri::command]
@@ -326,8 +393,11 @@ fn finish_drag(window: WebviewWindow, drag: Option<Drag>) -> Result<(), String> 
 }
 
 #[tauri::command]
-fn open_test_pad(window: WebviewWindow) -> Result<(), String> {
+fn open_test_pad(window: WebviewWindow, code: String) -> Result<(), String> {
     require_selection(&window)?;
+    if !(6..=128).contains(&code.len()) {
+        return Err("Invalid test secret.".into());
+    }
     let app = window.app_handle();
     let state = app.state::<Capture>();
     if state.lock().unwrap().area.is_none() {
@@ -337,8 +407,18 @@ fn open_test_pad(window: WebviewWindow) -> Result<(), String> {
         .get_webview_window("test-pad")
         .ok_or("Test trackpad is missing.")?;
     pad.show().map_err(|error| error.to_string())?;
-    state.lock().unwrap().test_pad.open = true;
-    pad.set_focus().map_err(|error| error.to_string())
+    {
+        let mut state = state.lock().unwrap();
+        state.test_pad.open = true;
+        state.pad_code = Some(code.clone());
+    }
+    let _ = app.emit_to(
+        EventTarget::webview_window("test-pad"),
+        "test-session",
+        Some(code),
+    );
+    let _ = pad.set_focus();
+    Ok(())
 }
 
 fn require_test_pad(window: &WebviewWindow) -> Result<(), String> {
@@ -356,6 +436,12 @@ fn test_pad_area(window: WebviewWindow) -> Result<Option<Bounds>, String> {
 }
 
 #[tauri::command]
+fn test_pad_session(window: WebviewWindow) -> Result<Option<String>, String> {
+    require_test_pad(&window)?;
+    Ok(window.state::<Capture>().lock().unwrap().pad_code.clone())
+}
+
+#[tauri::command]
 fn test_pad_input(window: WebviewWindow, input: Option<PadInput>) -> Result<(), String> {
     require_test_pad(&window)?;
     let capture = window.state::<Capture>();
@@ -368,7 +454,19 @@ fn test_pad_input(window: WebviewWindow, input: Option<PadInput>) -> Result<(), 
 
 fn hide_test_pad(window: &WebviewWindow) -> Result<(), String> {
     window.hide().map_err(|error| error.to_string())?;
-    window.state::<Capture>().lock().unwrap().test_pad.close();
+    {
+        let capture = window.state::<Capture>();
+        let mut state = capture.lock().unwrap();
+        state.test_pad.close();
+        state.pad_code = None;
+    }
+    let app = window.app_handle();
+    let _ = app.emit_to(
+        EventTarget::webview_window("test-pad"),
+        "test-session",
+        Option::<String>::None,
+    );
+    let _ = app.emit_to(EventTarget::webview_window("panel"), "test-pad-closed", ());
     Ok(())
 }
 
@@ -438,8 +536,9 @@ fn watch_pointer(app: AppHandle, clicks: Receiver<QueuedClick>) {
     let state = app.state::<Capture>();
     let mut last = None;
     let mut last_shared = None;
+    let mut last_marker_position = None;
     loop {
-        let (area, test_open, test_preview, session) = {
+        let (area, test_open, test_preview, session, pick_displays) = {
             let state = state.lock().unwrap();
             let area = if state.drag.is_some() {
                 None
@@ -451,12 +550,31 @@ fn watch_pointer(app: AppHandle, clicks: Receiver<QueuedClick>) {
                 state.test_pad.open,
                 state.test_pad.preview,
                 state.peer_session,
+                state.pick_displays.clone(),
             )
         };
+        let point =
+            if pick_displays.is_some() || (area.is_some() && session.is_some() && !test_open) {
+                platform::cursor(&app)
+            } else {
+                None
+            };
+        let marker_position = pick_displays
+            .as_deref()
+            .zip(point)
+            .map(|(displays, point)| pick_marker_position(point, displays));
+        if marker_position != last_marker_position {
+            if let Some(position) = marker_position {
+                if let Some(marker) = app.get_webview_window("pick-marker") {
+                    let _ = marker.set_position(position);
+                }
+            }
+            last_marker_position = marker_position;
+        }
         let sample = area
             .filter(|_| session.is_some() && !test_open)
             .and_then(|bounds| {
-                let sample: Sample = bounds.sample(platform::cursor(&app)?);
+                let sample: Sample = bounds.sample(point?);
                 sample.inside.then_some(sample)
             });
         let preview = if test_open && area.is_some() {
@@ -503,9 +621,12 @@ fn watch_pointer(app: AppHandle, clicks: Receiver<QueuedClick>) {
 fn main() {
     let (click_sender, clicks) = mpsc::sync_channel::<QueuedClick>(32);
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(updates::Service::default())
         .manage(Capture::default())
         .manage(click_sender)
         .setup(move |app| {
+            updates::setup(app.handle());
             let handle = app.handle().clone();
             thread::Builder::new()
                 .name("pointer-sampler".into())
@@ -541,6 +662,7 @@ fn main() {
             finish_drag,
             open_test_pad,
             test_pad_area,
+            test_pad_session,
             test_pad_input,
             close_test_pad,
             set_peer_sharing,
@@ -548,7 +670,11 @@ fn main() {
             restore_area,
             fit_panel,
             set_ghost_marks,
-            set_pick_count
+            set_pick_count,
+            prepare_pick_marker,
+            updates::get_update_state,
+            updates::check_for_updates,
+            updates::restart_and_update
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Ghostlink Tauri prototype");

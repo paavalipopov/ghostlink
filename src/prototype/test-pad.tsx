@@ -2,6 +2,9 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { useCallback, useEffect, useRef, useState, type JSX, type PointerEvent } from 'react'
 import { createRoot } from 'react-dom/client'
+import { useGhostLink } from '@renderer/link'
+import { useRelayStatus } from '@renderer/relay-status'
+import { StatusDot } from '@renderer/StatusDot'
 import { isInside, normalize, type Bounds, type Point } from '../shared/coords'
 import './panel.css'
 
@@ -22,6 +25,10 @@ function pointIn(event: PointerEvent<HTMLDivElement>): Point | null {
 function TestPad(): JSX.Element {
   const [area, setArea] = useState<Bounds | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [session, setSession] = useState<string | null>(null)
+  const [timedOutSession, setTimedOutSession] = useState<string | null>(null)
+  const { phase, detail } = useGhostLink(session !== null, { code: session ?? '' })
+  const relays = useRelayStatus(session !== null)
   const frame = useRef<number | null>(null)
   const pendingPoint = useRef<Point | null>(null)
 
@@ -32,8 +39,15 @@ function TestPad(): JSX.Element {
   }, [])
 
   useEffect(() => {
+    if (!session || phase === 'linked' || phase === 'error') return
+    const timeout = window.setTimeout(() => setTimedOutSession(session), 20_000)
+    return () => window.clearTimeout(timeout)
+  }, [session, phase])
+
+  useEffect(() => {
     let disposed = false
     let receivedArea = false
+    let receivedSession = false
     const subscription = listen<Bounds | null>('test-area', ({ payload }) => {
       receivedArea = true
       if (!disposed) setArea(payload)
@@ -42,6 +56,19 @@ function TestPad(): JSX.Element {
       .then(() => invoke<Bounds | null>('test_pad_area'))
       .then((area) => {
         if (!disposed && !receivedArea) setArea(area)
+      })
+      .catch((error) => {
+        if (!disposed) setError(String(error))
+      })
+
+    const sessionSubscription = listen<string | null>('test-session', ({ payload }) => {
+      receivedSession = true
+      if (!disposed) setSession(payload)
+    })
+    void sessionSubscription
+      .then(() => invoke<string | null>('test_pad_session'))
+      .then((code) => {
+        if (!disposed && !receivedSession) setSession(code)
       })
       .catch((error) => {
         if (!disposed) setError(String(error))
@@ -64,6 +91,10 @@ function TestPad(): JSX.Element {
         (unlisten) => unlisten(),
         () => undefined
       )
+      void sessionSubscription.then(
+        (unlisten) => unlisten(),
+        () => undefined
+      )
     }
   }, [send])
 
@@ -78,9 +109,48 @@ function TestPad(): JSX.Element {
           {area ? `${area.width} × ${area.height} pixels.` : 'Choose a shared area in Ghostlink.'}
         </span>
       </p>
-      <p className="text-xs text-muted-foreground" role="status">
-        Private preview
-      </p>
+      <div className="flex items-center gap-4 text-xs text-muted-foreground" role="status">
+        <span className="flex items-center gap-1.5">
+          Relays
+          <StatusDot
+            compact
+            testId="pad-relays"
+            state={relays.state}
+            title={
+              relays.open > 0
+                ? `${relays.open} of ${relays.total} relays reachable`
+                : relays.state === 'error'
+                  ? 'No signaling relays reachable'
+                  : 'Checking signaling relays'
+            }
+          />
+        </span>
+        <span className="flex items-center gap-1.5" data-testid="pad-status" data-phase={phase}>
+          Test peer
+          <StatusDot
+            compact
+            testId="pad-peer"
+            state={
+              phase === 'linked'
+                ? 'live'
+                : phase === 'error' || (session !== null && timedOutSession === session)
+                  ? 'error'
+                  : session
+                    ? 'wait'
+                    : 'idle'
+            }
+            title={
+              phase === 'linked'
+                ? 'Connected to the Ghostlink panel through WebRTC'
+                : phase === 'error'
+                  ? detail
+                  : session && timedOutSession === session
+                    ? 'The WebRTC test peer did not connect'
+                    : 'Connecting to the Ghostlink panel'
+            }
+          />
+        </span>
+      </div>
       <div
         role="group"
         aria-label="Test trackpad"
