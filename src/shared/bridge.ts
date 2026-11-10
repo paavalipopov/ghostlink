@@ -18,6 +18,7 @@ export type UpdateState =
   | { phase: 'idle' }
   | { phase: 'checking' }
   | { phase: 'available'; version: string }
+  | { phase: 'offered'; version: string }
   | { phase: 'downloading'; version: string; percent: number }
   | { phase: 'ready'; version: string }
   | { phase: 'installing'; version: string }

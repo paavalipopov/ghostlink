@@ -28,27 +28,23 @@ Click the bug button to open a private test trackpad. Move or click inside it to
 
 Indicators blink while connecting, turn green when connected, and turn red if the check fails. **Relays** checks the handshake servers; **Test peer** checks the connection to your main panel. This local test does not check another computer's network.
 
-`npm run test:link` builds and checks the two local peers through real signaling servers, verifies movement/clicks in a selected area, and checks that closing the test preserves the area and normal connection state. It needs a Windows desktop and internet access.
+`npm run test:link` runs the Electron reference check with two local peers and real signaling servers. It verifies movement and clicks in a selected area and checks that closing the test preserves the area and normal connection state. It needs a Windows desktop and internet access.
 
 ## Build
 
 On Windows, from this folder:
 
 ```
-npm install
-npm run build:win
+npm ci
+npm run prototype:build
 ```
 
-That writes `dist/Ghostlink-x.x.x-windows-setup.exe`. Run the installer, then open Ghostlink. Installed builds check GitHub Releases for updates after launch; when an update is ready, use **Restart and update** in the control panel.
+The Windows x64 installer is in `src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/`. Run the installer, then open Ghostlink. Release builds check GitHub Releases after launch. Click the update icon to check, download, install, and restart in one step. Local builds made with the command above have updates disabled.
 
-Choose a folder on the first setup screen, then click **Install**. The default is your user AppData Programs folder. When installation finishes, choose **Close** or **Start the app** on the progress screen. Desktop and Start menu shortcuts are also available. To uninstall, use Windows Installed apps or `Uninstall Ghostlink.exe` in the installation folder.
+If you used Ghostlink 0.7 or earlier, remove the Electron version through Windows Installed apps, then install 0.8 manually and enter your preferences again. The Tauri installer uses a separate app identity.
 
-`npm run dev` runs Ghostlink from source.
-
-The separate [Windows Tauri prototype](docs/tauri-prototype.md) tests local pointer capture and the overlay. The build and release commands above still use Electron.
+`npm run prototype:dev` runs Tauri from source. `npm run dev` opens the Electron reference app.
 
 ## Release
 
-Set the version in `package.json`, commit the change, and push a matching tag such as `v0.7.0`. The Windows release workflow runs the tests and production build, creates the NSIS installer and update metadata, uploads them to a draft GitHub Release, then publishes the release after every artifact is present.
-
-The installer remains unsigned until the `CSC_LINK` and `CSC_KEY_PASSWORD` GitHub Actions secrets are configured, so Windows may show a SmartScreen warning. Code-signing credentials must never be included in the application or repository.
+Set the Tauri version in `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`, and refresh `src-tauri/Cargo.lock`. The release workflow builds a draft from a matching tag such as `v0.8.0`. Review the installer and publish the draft as the latest release when it is ready. See the [Windows and updater setup](docs/tauri-prototype.md#signed-updates) for signing keys and release assets.

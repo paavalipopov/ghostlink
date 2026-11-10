@@ -670,8 +670,7 @@ fn main() {
             set_pick_count,
             prepare_pick_marker,
             updates::get_update_state,
-            updates::check_for_updates,
-            updates::restart_and_update
+            updates::check_for_updates
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Ghostlink Tauri prototype");

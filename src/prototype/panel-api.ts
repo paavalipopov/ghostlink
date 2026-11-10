@@ -201,8 +201,7 @@ export function createPanelApi(
     onPadClosed: (callback) => subscribe('test-pad-closed', callback),
     getUpdateState: () => invoke<UpdateState>('get_update_state'),
     onUpdateState: (callback) => subscribe<UpdateState>('update-state', callback),
-    checkForUpdates: () => invoke('check_for_updates'),
-    restartAndUpdate: () => invoke('restart_and_update')
+    checkForUpdates: () => invoke('check_for_updates')
   }
 
   return {

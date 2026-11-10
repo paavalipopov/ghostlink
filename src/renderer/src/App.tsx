@@ -88,7 +88,10 @@ function monitorTitle(state: 'idle' | 'wait' | 'live' | 'error', detail: string)
   return 'Disconnected'
 }
 
-function updatePresentation(state: UpdateState): {
+function updatePresentation(
+  state: UpdateState,
+  checkAction: string
+): {
   status: string
   action: string
   busy: boolean
@@ -100,6 +103,12 @@ function updatePresentation(state: UpdateState): {
       return { status: 'Checking for updates', action: 'Checking for updates', busy: true }
     case 'available':
       return { status: `Version ${state.version} found`, action: 'Downloading update', busy: true }
+    case 'offered':
+      return {
+        status: `Version ${state.version} is available`,
+        action: 'Update and restart',
+        busy: false
+      }
     case 'downloading':
       return {
         status: `Downloading version ${state.version}`,
@@ -121,13 +130,13 @@ function updatePresentation(state: UpdateState): {
     case 'up-to-date':
       return {
         status: `Version ${state.version} is current`,
-        action: 'Check for updates',
+        action: checkAction,
         busy: false
       }
     case 'error':
-      return { status: state.message, action: 'Retry update check', busy: false }
+      return { status: state.message, action: 'Retry update', busy: false }
     default:
-      return { status: 'Application updates', action: 'Check for updates', busy: false }
+      return { status: 'Application updates', action: checkAction, busy: false }
   }
 }
 
@@ -293,8 +302,12 @@ function App({
   if (linked && listenUntil !== null) setListenUntil(null)
   const dot = monitorState(monitoring, link.phase)
   const dotTitle = monitorTitle(dot, link.detail)
-  const update = updatePresentation(updateState)
+  const update = updatePresentation(
+    updateState,
+    api.restartAndUpdate ? 'Check for updates' : 'Check and install updates'
+  )
   const updateAvailable =
+    updateState.phase === 'offered' ||
     updateState.phase === 'available' ||
     updateState.phase === 'downloading' ||
     updateState.phase === 'ready' ||

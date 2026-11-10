@@ -1,7 +1,7 @@
 use serde::Serialize;
 use std::{sync::Mutex, time::Duration};
 use tauri::{AppHandle, Emitter, EventTarget, Manager, WebviewWindow};
-use tauri_plugin_updater::{Update, UpdaterExt};
+use tauri_plugin_updater::UpdaterExt;
 
 #[derive(Clone, Serialize)]
 #[serde(tag = "phase", rename_all = "kebab-case")]
@@ -9,27 +9,18 @@ pub enum UpdateState {
     Unsupported,
     Idle,
     Checking,
-    Available { version: String },
+    Offered { version: String },
     Downloading { version: String, percent: u8 },
-    Ready { version: String },
     Installing { version: String },
     UpToDate { version: String },
     Error { message: String },
 }
 
-pub struct Updates {
-    state: UpdateState,
-    staged: Option<(Update, Vec<u8>)>,
-}
+pub type Service = Mutex<UpdateState>;
 
-pub type Service = Mutex<Updates>;
-
-impl Default for Updates {
+impl Default for UpdateState {
     fn default() -> Self {
-        Self {
-            state: UpdateState::Unsupported,
-            staged: None,
-        }
+        Self::Unsupported
     }
 }
 
@@ -48,12 +39,7 @@ pub fn setup(app: &AppHandle) {
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
             tokio::time::sleep(Duration::from_secs(8)).await;
-            if matches!(
-                app.state::<Service>().lock().unwrap().state,
-                UpdateState::Idle
-            ) {
-                check(&app).await;
-            }
+            check(&app, false).await;
         });
     }
 }
@@ -63,7 +49,7 @@ fn publish(app: &AppHandle, state: UpdateState) {
 }
 
 fn transition(app: &AppHandle, state: UpdateState) {
-    app.state::<Service>().lock().unwrap().state = state.clone();
+    *app.state::<Service>().lock().unwrap() = state.clone();
     publish(app, state);
 }
 
@@ -77,17 +63,21 @@ fn fail(app: &AppHandle, message: &str, error: impl std::fmt::Display) {
     );
 }
 
-async fn check(app: &AppHandle) {
+async fn check(app: &AppHandle, install: bool) {
     {
         let service = app.state::<Service>();
         let mut updates = service.lock().unwrap();
-        if !matches!(
-            updates.state,
-            UpdateState::Idle | UpdateState::UpToDate { .. } | UpdateState::Error { .. }
-        ) {
+        let can_check = match *updates {
+            UpdateState::Idle => true,
+            UpdateState::Offered { .. }
+            | UpdateState::UpToDate { .. }
+            | UpdateState::Error { .. } => install,
+            _ => false,
+        };
+        if !can_check {
             return;
         }
-        updates.state = UpdateState::Checking;
+        *updates = UpdateState::Checking;
     }
     publish(app, UpdateState::Checking);
 
@@ -117,12 +107,10 @@ async fn check(app: &AppHandle) {
     };
 
     let version = update.version.clone();
-    transition(
-        app,
-        UpdateState::Available {
-            version: version.clone(),
-        },
-    );
+    if !install {
+        transition(app, UpdateState::Offered { version });
+        return;
+    }
     let mut downloaded = 0u64;
     let mut last_percent = None;
     let result = update
@@ -147,19 +135,24 @@ async fn check(app: &AppHandle) {
         )
         .await;
 
-    match result {
-        Ok(bytes) => {
-            let state = UpdateState::Ready { version };
-            {
-                let service = app.state::<Service>();
-                let mut updates = service.lock().unwrap();
-                updates.staged = Some((update, bytes));
-                updates.state = state.clone();
-            }
-            publish(app, state);
+    let bytes = match result {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            fail(app, "Could not download or verify the update", error);
+            return;
         }
-        Err(error) => fail(app, "Could not download or verify the update", error),
+    };
+    transition(app, UpdateState::Installing { version });
+    // On Windows, the installer restarts the app after the handoff.
+    if let Err(error) = update.install(bytes) {
+        fail(
+            app,
+            "Could not install the update. Check for updates to retry.",
+            error,
+        );
+        return;
     }
+    app.restart();
 }
 
 #[tauri::command]
@@ -170,7 +163,6 @@ pub async fn get_update_state(window: WebviewWindow) -> Result<UpdateState, Stri
         .state::<Service>()
         .lock()
         .unwrap()
-        .state
         .clone();
     Ok(state)
 }
@@ -178,36 +170,6 @@ pub async fn get_update_state(window: WebviewWindow) -> Result<UpdateState, Stri
 #[tauri::command]
 pub async fn check_for_updates(window: WebviewWindow) -> Result<(), String> {
     crate::require_panel(&window)?;
-    check(window.app_handle()).await;
+    check(window.app_handle(), true).await;
     Ok(())
-}
-
-#[tauri::command]
-pub async fn restart_and_update(window: WebviewWindow) -> Result<bool, String> {
-    crate::require_panel(&window)?;
-    let app = window.app_handle();
-    let (update, bytes, state) = {
-        let service = app.state::<Service>();
-        let mut updates = service.lock().unwrap();
-        let Some((update, bytes)) = updates.staged.take() else {
-            return Ok(false);
-        };
-        let state = UpdateState::Installing {
-            version: update.version.clone(),
-        };
-        updates.state = state.clone();
-        (update, bytes, state)
-    };
-    publish(app, state);
-
-    // Windows hands off to the installer, which restarts the app. Other platforms return here.
-    if let Err(error) = update.install(bytes) {
-        fail(
-            app,
-            "Could not install the update. Check for updates to retry.",
-            error,
-        );
-        return Ok(false);
-    }
-    app.restart();
 }

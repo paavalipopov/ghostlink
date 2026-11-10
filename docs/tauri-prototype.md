@@ -1,8 +1,8 @@
-# Ghostlink Tauri prototype for Windows
+# Ghostlink for Windows
 
-This prototype uses Tauri 2, Rust and WebView2 on Windows. It shares Ghostlink’s control panel with the Electron app. The overlay shows guest pointers and the private test pointer.
+Ghostlink 0.8 uses Tauri 2, Rust and WebView2 on Windows. It shares its control panel with the Electron reference app. The overlay shows guest pointers and the private test pointer.
 
-Open `src-tauri/target/x86_64-pc-windows-msvc/release/ghostlink-tauri-prototype.exe` to try the local build without installing. From the migration worktree, run `npm ci` once and `npm run prototype:dev` to run from source. `npm run prototype:build` creates the local Windows x64 installer under `src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/`. The prototype has its own app name and identifier. The installer uses the existing WebView2 Evergreen Runtime if available, or downloads Microsoft's bootstrapper if the runtime is missing; the offline runtime is not bundled.
+Open `src-tauri/target/x86_64-pc-windows-msvc/release/ghostlink-tauri-prototype.exe` to try the local build without installing. Run `npm ci` once and `npm run prototype:dev` to run from source. `npm run prototype:build` creates the local Windows x64 installer under `src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/`. Tauri uses a separate app identifier from Electron. The installer uses the existing WebView2 Evergreen Runtime if available, or downloads Microsoft's bootstrapper if the runtime is missing.
 
 1. Ghostlink starts with the primary display or your last saved area. Click **Full Screen** to use the whole display, or **Drag frame** to draw a rectangle. Press Esc in the picker to keep the previous frame.
 2. On Windows, click **Pick window** and point at another app before the countdown ends. An asterisk follows your pointer while the picker is active. For a window that spans displays, Ghostlink uses the portion on the display under the pointer. If you move or resize the target window, pick it again.
@@ -24,37 +24,14 @@ The platform layer reads the pointer in physical pixels. On Windows it also capt
 
 ## Signed updates
 
-Builds configured for updates check automatically after launch. Use the update icon to check again or to restart and install once the download is ready. The app verifies the package signature and the version covered by that signature before enabling installation.
+Release builds check for availability after launch. Click the update icon once to check again, download, verify, install, and restart. The Windows installer runs quietly during an update. A local build without a feed keeps the update icon dimmed.
 
-For a release build, generate and store a Tauri signing key outside the checkout. Pass the private key path and password to the build through `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. The client receives only the public key. Keep the same signing key for later updates to that release channel.
+Generate a persistent updater key with `npm exec -- tauri signer generate -w <private-key-path>`. Keep a backup of the private key and password outside the checkout. Set these GitHub Actions values before running the Release workflow.
 
-Use `npm run prototype:build -- --config path/to/release.json` with a release configuration like this, replacing the example URL and public key with the values for your release channel.
+- Repository variable `TAURI_UPDATER_PUBLIC_KEY` holds the contents of the generated public key file.
+- Repository secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` hold the private key file contents and password. Keep the same signing key for later updates to this release channel.
+- To Authenticode-sign the Windows installer and executable, configure the signing provider on the runner and set the repository variable `TAURI_WINDOWS_SIGN_COMMAND` to its Tauri signing command. The command must include Tauri's `%1` file placeholder and timestamp the signature. The release script verifies both signatures and timestamps when the command is supplied.
 
-```json
-{
-  "bundle": { "createUpdaterArtifacts": true },
-  "plugins": {
-    "updater": {
-      "pubkey": "REPLACE_WITH_TAURI_PUBLIC_KEY",
-      "endpoints": ["https://updates.example.com/ghostlink/latest.json"],
-      "requireSignedVersion": true
-    }
-  }
-}
-```
+The workflow uploads the NSIS installer, its Tauri `.sig`, and `latest.json` to a draft GitHub Release. `latest.json` contains the version, the versioned installer URL, and the updater signature. The app reads the stable `releases/latest/download/latest.json` URL from the same public repository. Publish the draft as the latest release after reviewing all three assets. Publish future releases the same way so installed copies can find them.
 
-Host the generated NSIS installer and serve a manifest with the new version, installer URL, and contents of the matching `.sig` file. Keep `version` equal to the version used to build and sign the installer. For a Windows x64 feed, the manifest can use this shape.
-
-```json
-{
-  "version": "0.6.1",
-  "platforms": {
-    "windows-x86_64": {
-      "url": "https://updates.example.com/ghostlink/0.6.1/setup.exe",
-      "signature": "REPLACE_WITH_CONTENTS_OF_SETUP_EXE_SIG"
-    }
-  }
-}
-```
-
-The default prototype build shows a dimmed update icon on the left of the bottom row. The button becomes active in builds configured with a release feed. The Tauri updater is separate from the Electron updater and its existing release workflow.
+To build the same assets locally from the repo root, set the same environment variables and run `./scripts/build-tauri-release.ps1 -Repository paavalipopov/ghostlink -Tag v0.8.0` in PowerShell 7. The script writes the release assets under `dist/release`. Build-time Authenticode signing runs before Tauri generates the updater signature.
