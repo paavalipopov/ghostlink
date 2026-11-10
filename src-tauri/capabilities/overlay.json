@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "overlay-events",
-  "description": "Receive local pointer samples in the prototype overlay.",
-  "windows": ["overlay"],
+  "identifier": "desktop-events",
+  "description": "Receive local pointer samples and area selection results.",
+  "windows": ["panel", "overlay"],
   "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
 }

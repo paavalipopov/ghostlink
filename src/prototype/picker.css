@@ -1,0 +1,18 @@
+.picker {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: rgb(20 18 16 / 30%);
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+
+.picker .frame {
+  box-sizing: border-box;
+}
+
+.picker .mark-banner {
+  top: 24px;
+  pointer-events: none;
+}
