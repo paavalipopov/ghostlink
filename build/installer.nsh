@@ -68,12 +68,15 @@
         MessageBox MB_OK|MB_ICONEXCLAMATION "Choose a full folder path, such as C:\Apps\Ghostlink."
         Abort
       ${EndIf}
-      ClearErrors
-      GetFullPathName $1 "$1"
-      ${If} ${Errors}
+      ; NSIS GetFullPathName requires the parent to exist. Normalize the path
+      ; with Win32 so setup can accept and create new folders.
+      System::Call 'kernel32::GetFullPathNameW(w r1, i ${NSIS_MAX_STRLEN}, w .r2, p 0)i.r0'
+      ${If} $0 == 0
+      ${OrIf} $0 >= ${NSIS_MAX_STRLEN}
         MessageBox MB_OK|MB_ICONEXCLAMATION "Choose a valid installation folder."
         Abort
       ${EndIf}
+      StrCpy $1 $2
       ; Use a dedicated subfolder for a new destination, while preserving an
       ; existing install path. Uninstall must not remove a shared parent folder.
       ${If} $1 != $INSTDIR
