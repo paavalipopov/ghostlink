@@ -7,7 +7,7 @@ mod preview;
 
 use geometry::{Bounds, Drag, Sample};
 use peer::{PeerInput, PeerPointer, QueuedClick};
-use preview::{PadInput, Preview, TestPad};
+use preview::{PadInput, TestPad};
 use serde::Serialize;
 use std::{
     sync::{
@@ -18,7 +18,8 @@ use std::{
     time::Duration,
 };
 use tauri::{
-    AppHandle, Emitter, EventTarget, Manager, PhysicalPosition, PhysicalSize, WebviewWindow,
+    AppHandle, Emitter, EventTarget, LogicalSize, Manager, PhysicalPosition, PhysicalSize,
+    WebviewWindow,
 };
 
 #[derive(Default)]
@@ -37,6 +38,7 @@ struct Display {
     name: String,
     bounds: Bounds,
     scale_factor: f64,
+    primary: bool,
 }
 
 #[derive(Serialize)]
@@ -54,6 +56,7 @@ struct AreaChange {
 }
 
 fn list_displays(window: &WebviewWindow) -> tauri::Result<Vec<Display>> {
+    let primary = window.primary_monitor()?.map(|monitor| *monitor.position());
     Ok(window
         .available_monitors()?
         .into_iter()
@@ -70,6 +73,7 @@ fn list_displays(window: &WebviewWindow) -> tauri::Result<Vec<Display>> {
                 height: monitor.size().height,
             },
             scale_factor: monitor.scale_factor(),
+            primary: primary.as_ref() == Some(monitor.position()),
         })
         .collect())
 }
@@ -188,6 +192,54 @@ fn select_display(window: WebviewWindow, bounds: Option<Bounds>) -> Result<AreaC
         require_display(&window, bounds)?;
     }
     apply_area(window.app_handle(), bounds)
+}
+
+#[tauri::command]
+fn restore_area(window: WebviewWindow, bounds: Bounds) -> Result<AreaChange, String> {
+    require_selection(&window)?;
+    let displays = list_displays(&window).map_err(|error| error.to_string())?;
+    if bounds.width < 2
+        || bounds.height < 2
+        || !displays
+            .iter()
+            .any(|display| display.bounds.intersect(bounds) == Some(bounds))
+    {
+        return Err("The saved area is outside the current displays.".into());
+    }
+    apply_area(window.app_handle(), Some(bounds))
+}
+
+#[tauri::command]
+fn fit_panel(window: WebviewWindow, width: u32, height: u32) -> Result<(), String> {
+    require_panel(&window)?;
+    if !(240..=640).contains(&width) || !(200..=900).contains(&height) {
+        return Err("Invalid panel size.".into());
+    }
+    window
+        .set_size(LogicalSize::new(width, height))
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn set_ghost_marks(window: WebviewWindow, enabled: bool) -> Result<(), String> {
+    require_panel(&window)?;
+    window
+        .app_handle()
+        .emit_to(
+            EventTarget::webview_window("overlay"),
+            "ghost-marks",
+            enabled,
+        )
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn set_pick_count(window: WebviewWindow, count: Option<u8>) -> Result<(), String> {
+    require_panel(&window)?;
+    window
+        .app_handle()
+        .emit_to(EventTarget::webview_window("overlay"), "pick-count", count)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -401,18 +453,14 @@ fn watch_pointer(app: AppHandle, clicks: Receiver<QueuedClick>) {
                 state.peer_session,
             )
         };
-        let sample = area.filter(|_| !test_open).and_then(|bounds| {
-            let sample: Sample = bounds.sample(platform::cursor(&app)?);
-            sample.inside.then_some(sample)
-        });
+        let sample = area
+            .filter(|_| session.is_some() && !test_open)
+            .and_then(|bounds| {
+                let sample: Sample = bounds.sample(platform::cursor(&app)?);
+                sample.inside.then_some(sample)
+            });
         let preview = if test_open && area.is_some() {
             test_preview
-        } else if session.is_none() {
-            sample.map(|sample| Preview {
-                sample,
-                test: false,
-                click_key: None,
-            })
         } else {
             None
         };
@@ -496,7 +544,11 @@ fn main() {
             test_pad_input,
             close_test_pad,
             set_peer_sharing,
-            show_peer_pointers
+            show_peer_pointers,
+            restore_area,
+            fit_panel,
+            set_ghost_marks,
+            set_pick_count
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Ghostlink Tauri prototype");

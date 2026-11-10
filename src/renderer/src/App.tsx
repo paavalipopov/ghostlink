@@ -1,6 +1,14 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type JSX } from 'react'
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type JSX,
+  type ReactNode
+} from 'react'
 import { version } from '../../../package.json'
-import type { UpdateState } from '../../shared/bridge'
+import type { GhostlinkApi, UpdateState } from '../../shared/bridge'
 import type { Bounds } from '../../shared/coords'
 import { codeIsStrong, makeCode, makePingId } from '../../shared/protocol'
 import { Button } from '@renderer/components/ui/button'
@@ -115,41 +123,88 @@ function updatePresentation(state: UpdateState): {
   }
 }
 
-function App(): JSX.Element {
+export type PanelApi = Pick<
+  GhostlinkApi,
+  | 'ghostMarks'
+  | 'setGhostMarks'
+  | 'restorePlayArea'
+  | 'setShowFrame'
+  | 'onPlayArea'
+  | 'onMarking'
+  | 'onSample'
+  | 'onClick'
+  | 'setGhosts'
+  | 'fitWindow'
+  | 'mark'
+  | 'pickFrame'
+  | 'useDisplay'
+> &
+  Partial<
+    Pick<
+      GhostlinkApi,
+      | 'onUpdateState'
+      | 'getUpdateState'
+      | 'checkForUpdates'
+      | 'restartAndUpdate'
+      | 'setLinked'
+      | 'openPad'
+      | 'onPadClosed'
+    >
+  > & {
+    setSharing?: (active: boolean) => void
+    openLocalPad?: () => Promise<void>
+  }
+
+type PanelProps = {
+  api: PanelApi
+  appVersion?: string
+  areaControls?: ReactNode
+  areaNote?: string | null
+  canSelectArea?: boolean
+  canPickWindow?: boolean
+}
+
+function App({
+  api,
+  appVersion = version,
+  areaControls,
+  areaNote,
+  canSelectArea = true,
+  canPickWindow = true
+}: PanelProps): JSX.Element {
   const [name, setName] = useState(() => stored('ghostlink.name', ''))
   const [code, setCode] = useState(() => stored('ghostlink.code', ''))
   const [monitoring, setMonitoring] = useState(false)
   const [ghostMarks, setGhostMarks] = useState(false)
   useEffect(() => {
     let gone = false
-    void window.api.ghostMarks().then((value) => {
+    void api.ghostMarks().then((value) => {
       if (!gone) setGhostMarks(value)
     })
     return () => {
       gone = true
     }
-  }, [])
+  }, [api])
   const [listenUntil, setListenUntil] = useState<number | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const [marking, setMarking] = useState(false)
-  const [panelReady, setPanelReady] = useState(false)
   const [sessionCode, setSessionCode] = useState('')
   const [testCode, setTestCode] = useState('')
   const [updateState, setUpdateState] = useState<UpdateState>({ phase: 'unsupported' })
 
   useEffect(() => {
     let gone = false
-    const stop = window.api.onUpdateState((next) => {
+    const stop = api.onUpdateState?.((next) => {
       if (!gone) setUpdateState(next)
     })
-    void window.api.getUpdateState().then((next) => {
+    void api.getUpdateState?.().then((next) => {
       if (!gone) setUpdateState(next)
     })
     return () => {
       gone = true
-      stop()
+      stop?.()
     }
-  }, [])
+  }, [api])
 
   const settings: LinkSettings = { code: sessionCode }
   const link = useGhostLink(monitoring, settings)
@@ -162,26 +217,17 @@ function App(): JSX.Element {
 
   useEffect(() => {
     enabled.current = monitoring
-  }, [monitoring])
+    api.setSharing?.(monitoring)
+  }, [api, monitoring])
 
-  useEffect(() => window.api.onPadClosed(() => setTestCode('')), [])
+  useEffect(() => api.onPadClosed?.(() => setTestCode('')), [api])
 
   useEffect(() => {
-    const raw = stored('ghostlink.areaPx', '')
-    if (raw) {
-      try {
-        void window.api.restorePlayArea(JSON.parse(raw) as Bounds)
-      } catch {
-        // Ignore a damaged saved rectangle.
-      }
-    }
-    setPanelReady(true)
-    void window.api.setShowFrame(true)
-    const offArea = window.api.onPlayArea((next) => {
+    const offArea = api.onPlayArea((next) => {
       remember('ghostlink.areaPx', JSON.stringify(next))
     })
-    const offMarking = window.api.onMarking(setMarking)
-    const offSample = window.api.onSample((sample) => {
+    const offMarking = api.onMarking(setMarking)
+    const offSample = api.onSample((sample) => {
       if (!enabled.current) return
       publishMove({
         name: nameRef.current,
@@ -189,8 +235,9 @@ function App(): JSX.Element {
         y: sample.inside ? sample.y : null
       })
     })
-    const offClick = window.api.onClick((sample) => {
+    const offClick = api.onClick((sample) => {
       if (!enabled.current || !sample.inside) return
+      if (api.setSharing) publishMove({ name: nameRef.current, x: sample.x, y: sample.y })
       publishPing({
         name: nameRef.current,
         x: sample.x,
@@ -198,13 +245,22 @@ function App(): JSX.Element {
         id: makePingId()
       })
     })
+    void (async () => {
+      try {
+        const raw = stored('ghostlink.areaPx', '')
+        if (raw) await api.restorePlayArea(JSON.parse(raw) as Bounds)
+      } catch {
+        // Fall back to the default area if the saved area is invalid.
+      }
+      api.setShowFrame(true)
+    })()
     return () => {
       offArea()
       offMarking()
       offSample()
       offClick()
     }
-  }, [publishMove, publishPing])
+  }, [api, publishMove, publishPing])
 
   useEffect(() => {
     if (!monitoring) return
@@ -221,12 +277,13 @@ function App(): JSX.Element {
       y: ghost.y,
       pings: ghost.pings.map((ping) => ({ id: ping.id, x: ping.x, y: ping.y }))
     }))
-    window.api.setGhosts(payload)
-  }, [monitoring, link.ghosts, testCode, testLink.ghosts])
+    api.setGhosts(payload)
+  }, [api, monitoring, link.ghosts, testCode, testLink.ghosts])
 
   const codeOk = codeIsStrong(code)
   const formOk = codeOk && name.trim().length > 0
   const linked = monitoring && link.phase === 'linked'
+  if (linked && listenUntil !== null) setListenUntil(null)
   const dot = monitorState(monitoring, link.phase)
   const dotTitle = monitorTitle(dot, link.detail)
   const update = updatePresentation(updateState)
@@ -236,15 +293,11 @@ function App(): JSX.Element {
     updateState.phase === 'ready'
 
   useEffect(() => {
-    window.api.setLinked(linked)
-  }, [linked])
+    api.setLinked?.(linked)
+  }, [api, linked])
 
   useEffect(() => {
-    if (!monitoring || linked) setListenUntil(null)
-  }, [monitoring, linked])
-
-  useEffect(() => {
-    if (listenUntil == null) return
+    if (!monitoring || listenUntil == null) return
     const tick = (): void => {
       const remaining = listenUntil - Date.now()
       if (remaining <= 0) {
@@ -257,13 +310,12 @@ function App(): JSX.Element {
     tick()
     const timer = setInterval(tick, 200)
     return () => clearInterval(timer)
-  }, [listenUntil])
+  }, [listenUntil, monitoring])
 
   const layoutWidth = 300
   const [layoutReady, setLayoutReady] = useState(false)
   const [zoom, setZoom] = useState(1)
   useLayoutEffect(() => {
-    if (!panelReady) return
     let cancel = false
     void document.fonts.ready.then(() => {
       if (cancel) return
@@ -272,18 +324,22 @@ function App(): JSX.Element {
     return () => {
       cancel = true
     }
-  }, [panelReady])
+  }, [])
 
   useLayoutEffect(() => {
-    if (!layoutReady || fitted.current) return
+    if (!layoutReady) return
     const node = panelRef.current
     if (!node) return
     const rect = node.getBoundingClientRect()
     const width = Math.ceil(rect.width)
     const height = Math.ceil(rect.height)
     if (width < 240 || height < 200) return
+    if (fitted.current) {
+      api.fitWindow({ width, height })
+      return
+    }
     fitted.current = true
-    window.api.fitWindow({ width, height })
+    api.fitWindow({ width, height })
     const started = window.setInterval(() => {
       const gapW = window.innerWidth / width
       const gapH = window.innerHeight / height
@@ -293,7 +349,7 @@ function App(): JSX.Element {
       if (gap > 1.04) setZoom(Math.round(gap * 100) / 100)
     }, 30)
     window.setTimeout(() => window.clearInterval(started), 1000)
-  }, [layoutReady, layoutWidth])
+  }, [api, areaNote, layoutReady, layoutWidth])
 
   const beginListen = (): void => {
     nameRef.current = name.trim() || 'Friend'
@@ -321,7 +377,7 @@ function App(): JSX.Element {
             onClick={() => {
               const next = !ghostMarks
               setGhostMarks(next)
-              window.api.setGhostMarks(next)
+              api.setGhostMarks(next)
             }}
           >
             <GhostMark />
@@ -331,7 +387,7 @@ function App(): JSX.Element {
             data-testid="app-version"
             className="pointer-events-none absolute left-full top-[0.15em] ml-0.5 text-[0.5em] font-semibold leading-none tracking-normal"
           >
-            {releaseMark(version)}
+            {releaseMark(appVersion)}
           </sup>
         </h1>
       </header>
@@ -410,9 +466,10 @@ function App(): JSX.Element {
               : 'Connect with this code for one minute'
         }
         aria-label={linked || monitoring ? 'Disconnect' : 'Connect'}
-        disabled={!monitoring && !formOk}
+        disabled={!monitoring && (!formOk || !canSelectArea)}
         onClick={() => {
           if (monitoring) {
+            setListenUntil(null)
             setMonitoring(false)
             return
           }
@@ -442,15 +499,16 @@ function App(): JSX.Element {
 
       <section className="space-y-2.5">
         <h2 className="text-center text-sm font-medium">Shared display</h2>
+        {areaControls}
         <div className="grid grid-cols-2 gap-1.5">
           <Button
             type="button"
             variant="secondary"
             className="px-2"
             title="Point at a window and wait through the countdown. The frame matches that window."
-            disabled={marking}
+            disabled={marking || !canSelectArea || !canPickWindow}
             data-testid="mark-window"
-            onClick={() => void window.api.mark('window')}
+            onClick={() => void api.mark('window')}
           >
             <IconWindow />
             Pick window
@@ -461,49 +519,51 @@ function App(): JSX.Element {
             className="px-2"
             data-testid="drag-frame"
             title="Click and drag across to select a custom rectangular frame."
-            disabled={marking}
-            onClick={() => void window.api.pickFrame()}
+            disabled={marking || !canSelectArea}
+            onClick={() => void api.pickFrame()}
           >
             <IconDrag />
             Drag frame
           </Button>
         </div>
         <div className="flex items-center gap-1.5">
-          <Button
-            type="button"
-            variant="ghost"
-            className={`size-9 shrink-0 rounded-full border border-border px-0 disabled:opacity-100 ${
-              updateState.phase === 'unsupported' ? 'invisible' : ''
-            } ${
-              updateAvailable
-                ? 'border-[#3dbe6a] bg-[#3dbe6a] text-[#1a140c] hover:bg-[#349e59]'
-                : 'bg-background text-foreground'
-            } ${updateState.phase === 'up-to-date' ? 'opacity-50 hover:opacity-100' : ''}`}
-            data-testid="update-action"
-            data-state={updateState.phase}
-            title={`${update.status}. ${update.action}`}
-            aria-label={update.action}
-            aria-busy={update.busy}
-            aria-hidden={updateState.phase === 'unsupported'}
-            disabled={update.busy || updateState.phase === 'unsupported'}
-            onClick={() => {
-              if (updateState.phase === 'ready') {
-                void window.api.restartAndUpdate()
-                return
-              }
-              void window.api.checkForUpdates()
-            }}
-          >
-            <IconUpdate />
-          </Button>
+          {api.getUpdateState && (
+            <Button
+              type="button"
+              variant="ghost"
+              className={`size-9 shrink-0 rounded-full border border-border px-0 disabled:opacity-100 ${
+                updateState.phase === 'unsupported' ? 'invisible' : ''
+              } ${
+                updateAvailable
+                  ? 'border-[#3dbe6a] bg-[#3dbe6a] text-[#1a140c] hover:bg-[#349e59]'
+                  : 'bg-background text-foreground'
+              } ${updateState.phase === 'up-to-date' ? 'opacity-50 hover:opacity-100' : ''}`}
+              data-testid="update-action"
+              data-state={updateState.phase}
+              title={`${update.status}. ${update.action}`}
+              aria-label={update.action}
+              aria-busy={update.busy}
+              aria-hidden={updateState.phase === 'unsupported'}
+              disabled={update.busy || updateState.phase === 'unsupported'}
+              onClick={() => {
+                if (updateState.phase === 'ready') {
+                  void api.restartAndUpdate?.()
+                  return
+                }
+                void api.checkForUpdates?.()
+              }}
+            >
+              <IconUpdate />
+            </Button>
+          )}
           <Button
             type="button"
             variant="secondary"
             className="min-w-0 flex-1 px-2"
             title="Frame this whole display"
-            disabled={marking}
+            disabled={marking || !canSelectArea}
             data-testid="full-screen"
-            onClick={() => void window.api.useDisplay()}
+            onClick={() => void api.useDisplay()}
           >
             <IconFullScreen />
             Full Screen
@@ -516,15 +576,25 @@ function App(): JSX.Element {
             data-testid="open-pad"
             title="Test run"
             aria-label="Test run"
+            disabled={!canSelectArea}
             onClick={() => {
+              if (api.openLocalPad) {
+                void api.openLocalPad()
+                return
+              }
               const next = testCode || makeCode()
               setTestCode(next)
-              void window.api.openPad({ code: next }).catch(() => setTestCode(''))
+              void api.openPad?.({ code: next }).catch(() => setTestCode(''))
             }}
           >
             <IconBug />
           </Button>
         </div>
+        {areaNote && (
+          <p className="text-xs text-muted-foreground" role="status">
+            {areaNote}
+          </p>
+        )}
         <span className="sr-only" role="status">
           {update.status}
         </span>

@@ -1,3 +1,4 @@
 @import '../renderer/src/assets/main.css';
 @source '../renderer/src/components/ui';
+@source '../renderer/src/App.tsx';
 @source '../renderer/src/StatusDot.tsx';

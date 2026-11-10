@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct Preview {
     pub sample: Sample,
-    pub test: bool,
     pub click_key: Option<u64>,
 }
 
@@ -49,7 +48,6 @@ impl TestPad {
         };
         self.preview = Some(Preview {
             sample: Sample { x, y, inside: true },
-            test: true,
             click_key,
         });
         Ok(())

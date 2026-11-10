@@ -1,13 +1,13 @@
 # Ghostlink Tauri prototype for Windows
 
-This prototype uses Tauri 2, Rust and WebView2 on Windows. It can share a pointer with another Ghostlink app using the same secret. The panel uses Ghostlink’s theme, buttons, and icons.
+This prototype uses Tauri 2, Rust and WebView2 on Windows. It shares Ghostlink’s control panel with the Electron app. The overlay shows guest pointers and the private test pointer.
 
 Open `src-tauri/target/x86_64-pc-windows-msvc/release/ghostlink-tauri-prototype.exe` to try the local build without installing. From the migration worktree, run `npm ci` once and `npm run prototype:dev` to run from source. `npm run prototype:build` creates the local Windows x64 installer under `src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/`. The prototype has its own app name and identifier. The installer uses the existing WebView2 Evergreen Runtime if available, or downloads Microsoft's bootstrapper if the runtime is missing; the offline runtime is not bundled.
 
-1. Choose a display and click **Full Screen** to use the entire display, or **Drag frame** to draw a rectangle. Press Esc in the picker to keep the previous frame.
-2. On Windows, click **Pick window** and point at another app before the three-second countdown ends. For a window that spans displays, Ghostlink uses the portion on the display under the pointer. If you move or resize the target window, pick it again.
-3. Check that the arrow tip follows the pointer inside the frame and disappears outside. Move a separate app under the frame and click through the arrow. The app should receive the click. The panel reports the area in physical pixels. Click **Hide frame** to turn off the local preview.
-4. Click **Test pointer** and move inside the trackpad to place the blue **Test user** pointer in the shared area. Click the trackpad to see it blink. Move the trackpad beside the area if it covers the marker. Close it or press Esc to end the test. Your shared area stays selected.
+1. Ghostlink starts with the primary display or your last saved area. Click **Full Screen** to use the whole display, or **Drag frame** to draw a rectangle. Press Esc in the picker to keep the previous frame.
+2. On Windows, click **Pick window** and point at another app before the countdown ends. For a window that spans displays, Ghostlink uses the portion on the display under the pointer. If you move or resize the target window, pick it again.
+3. After connecting, your guest’s arrow disappears when they leave their shared area. Click through a guest arrow to interact with the app underneath.
+4. Click the bug button to open the private trackpad. Move inside the pad to place the blue **Test user** pointer in the shared area. Click the trackpad to see it blink. Move the trackpad aside if it covers the marker. Close it or press Esc to end the test. Your shared area stays selected.
 5. On a two-display setup, give the displays different scales and repeat on both. Move the secondary display to the left of and above the primary to test negative X and Y. Restart the prototype after changing display settings so it refreshes the display list.
 
 To connect to a friend, select your shared area first, then enter a username and the same secret in both apps. Click **Connect** in both. Movement maps between your two areas, and a left click inside your area on Windows makes your arrow blink for the other person. Opening the private trackpad pauses sending your desktop pointer until you close it. Signaling uses the same public relays as the Electron app.

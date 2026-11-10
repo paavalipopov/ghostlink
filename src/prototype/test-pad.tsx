@@ -68,18 +68,25 @@ function TestPad(): JSX.Element {
   }, [send])
 
   return (
-    <main className="mx-auto flex h-full max-w-sm flex-col gap-3 p-4">
+    <main className="flex h-full flex-col gap-3 p-4">
       <header>
         <h1 className="text-lg font-semibold">Test your pointer</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Move here to place <span className="text-foreground">Test user</span> in your shared area.
-          Click to blink the pointer.
-        </p>
       </header>
+      <p className="text-sm text-muted-foreground">
+        Move here to show <span className="text-foreground">Test user</span> in your shared area.{' '}
+        <span className="whitespace-nowrap" data-testid="pad-area">
+          {area ? `${area.width} × ${area.height} pixels.` : 'Choose a shared area in Ghostlink.'}
+        </span>
+      </p>
+      <p className="text-xs text-muted-foreground" role="status">
+        Private preview
+      </p>
       <div
         role="group"
         aria-label="Test trackpad"
-        className="grid min-h-24 flex-1 cursor-crosshair touch-none place-items-center rounded-lg border border-border bg-[#100e0c] text-xs text-muted-foreground select-none"
+        data-testid="pad-surface"
+        title="Move or click to test the pointer in your shared area."
+        className="relative min-h-32 flex-1 touch-none overflow-hidden rounded-lg border border-border bg-[#100e0c] select-none"
         onPointerMove={(event) => {
           if (!area) return
           pendingPoint.current = pointIn(event)
@@ -97,14 +104,7 @@ function TestPad(): JSX.Element {
         }}
         onPointerLeave={() => send(null)}
         onPointerCancel={() => send(null)}
-      >
-        <span className="pointer-events-none">
-          {area ? 'Move or click here' : 'Choose a shared area in Ghostlink'}
-        </span>
-      </div>
-      <p className="text-xs text-muted-foreground" role="status">
-        {area ? `${area.width} × ${area.height} px · Private preview` : 'Waiting for a shared area'}
-      </p>
+      />
       {error && (
         <p role="alert" className="text-xs text-[#ffad98]">
           {error}

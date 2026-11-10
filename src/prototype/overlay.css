@@ -28,6 +28,10 @@ body,
   transform: translate(calc(-5px * 22 / 24), calc(-2.5px * 22 / 24));
 }
 
+.point [data-mark='ghost'] {
+  transform: translate(-18px, -3.375px);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .point {
     transition: none;
