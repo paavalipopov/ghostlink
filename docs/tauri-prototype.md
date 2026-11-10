@@ -57,4 +57,4 @@ Host the generated NSIS installer and serve a manifest with the new version, ins
 }
 ```
 
-The default prototype build has no release feed. The Tauri updater is separate from the Electron updater and its existing release workflow.
+The default prototype build shows a dimmed update icon on the left of the bottom row. The button becomes active in builds configured with a release feed. The Tauri updater is separate from the Electron updater and its existing release workflow.

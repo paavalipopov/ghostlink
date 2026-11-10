@@ -94,6 +94,8 @@ function updatePresentation(state: UpdateState): {
   busy: boolean
 } {
   switch (state.phase) {
+    case 'unsupported':
+      return { status: 'Updates are unavailable in this build', action: 'Updates', busy: false }
     case 'checking':
       return { status: 'Checking for updates', action: 'Checking for updates', busy: true }
     case 'available':
@@ -297,6 +299,7 @@ function App({
     updateState.phase === 'downloading' ||
     updateState.phase === 'ready' ||
     updateState.phase === 'installing'
+  const updateUnavailable = updateState.phase === 'unsupported'
 
   useEffect(() => {
     api.setLinked?.(linked)
@@ -533,32 +536,38 @@ function App({
           </Button>
         </div>
         <div className="flex items-center gap-1.5">
-          {updateState.phase !== 'unsupported' && (
-            <Button
-              type="button"
-              variant="ghost"
-              className={`size-9 shrink-0 rounded-full border border-border px-0 disabled:opacity-100 ${
-                updateAvailable
-                  ? 'border-[#3dbe6a] bg-[#3dbe6a] text-[#1a140c] hover:bg-[#349e59]'
-                  : 'bg-background text-foreground'
-              } ${updateState.phase === 'up-to-date' ? 'opacity-50 hover:opacity-100' : ''}`}
-              data-testid="update-action"
-              data-state={updateState.phase}
-              title={`${update.status}. ${update.action}`}
-              aria-label={update.action}
-              aria-busy={update.busy}
-              disabled={update.busy}
-              onClick={() => {
-                if (updateState.phase === 'ready') {
-                  void api.restartAndUpdate?.()
-                  return
-                }
-                void api.checkForUpdates?.()
-              }}
-            >
-              <IconUpdate />
-            </Button>
-          )}
+          <Button
+            type="button"
+            variant="ghost"
+            className={`size-9 shrink-0 rounded-full border border-border px-0 disabled:opacity-100 ${
+              updateAvailable
+                ? 'border-[#3dbe6a] bg-[#3dbe6a] text-[#1a140c] hover:bg-[#349e59]'
+                : 'bg-background text-foreground'
+            } ${
+              updateUnavailable
+                ? 'cursor-default opacity-50 hover:bg-background hover:text-foreground'
+                : updateState.phase === 'up-to-date'
+                  ? 'opacity-50 hover:opacity-100'
+                  : ''
+            }`}
+            data-testid="update-action"
+            data-state={updateState.phase}
+            title={updateUnavailable ? update.status : `${update.status}. ${update.action}`}
+            aria-label={updateUnavailable ? update.status : update.action}
+            aria-busy={update.busy}
+            aria-disabled={updateUnavailable}
+            disabled={update.busy}
+            onClick={() => {
+              if (updateUnavailable) return
+              if (updateState.phase === 'ready') {
+                void api.restartAndUpdate?.()
+                return
+              }
+              void api.checkForUpdates?.()
+            }}
+          >
+            <IconUpdate />
+          </Button>
           <Button
             type="button"
             variant="secondary"

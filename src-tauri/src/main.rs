@@ -288,25 +288,22 @@ fn set_pick_count(window: WebviewWindow, count: Option<u8>) -> Result<(), String
 }
 
 fn pick_marker_position(point: Point, displays: &[Display]) -> PhysicalPosition<i32> {
-    let Some(display) = displays
+    let display = displays
         .iter()
-        .find(|display| display.bounds.sample(point).inside)
-    else {
-        return PhysicalPosition::new(point.x + 16, point.y - 8);
+        .find(|display| display.bounds.sample(point).inside);
+    let scale = display.map_or(1.0, |display| display.scale_factor);
+    // Keep the glyph beside the arrow tip so both marks stay legible.
+    let x = point.x + (6.0 * scale).round() as i32;
+    let Some(bounds) = display.map(|display| display.bounds) else {
+        return PhysicalPosition::new(x, point.y);
     };
-    let scale = display.scale_factor;
-    let size = (22.0 * scale).ceil() as i32;
-    let gap = (14.0 * scale).round() as i32;
-    let bounds = display.bounds;
+    let size = (6.0 * scale).ceil() as i32;
     let right = bounds.x + bounds.width as i32;
     let bottom = bounds.y + bounds.height as i32;
-    let x = if point.x + gap + size <= right {
-        point.x + gap
-    } else {
-        point.x - gap - size
-    };
-    let y = (point.y - size / 2).clamp(bounds.y, (bottom - size).max(bounds.y));
-    PhysicalPosition::new(x.max(bounds.x), y)
+    PhysicalPosition::new(
+        x.min((right - size).max(bounds.x)),
+        point.y.min((bottom - size).max(bounds.y)),
+    )
 }
 
 #[tauri::command]
