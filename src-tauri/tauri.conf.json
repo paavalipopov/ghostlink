@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Ghostlink Tauri Prototype",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "identifier": "app.ghostlink.tauriprototype",
   "build": {
     "beforeDevCommand": "npm run prototype:ui:dev",
@@ -15,9 +15,9 @@
         "label": "panel",
         "title": "Ghostlink Tauri Prototype",
         "width": 360,
-        "height": 400,
+        "height": 555,
         "minWidth": 340,
-        "minHeight": 380
+        "minHeight": 500
       },
       {
         "label": "overlay",
@@ -60,7 +60,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost wss://0x-nostr-relay.fly.dev wss://bendernostur.duckdns.org:8443 wss://cdn.satellite.earth wss://nos.lol wss://nostr.chaima.info wss://nostr.christiansass.de wss://nostr.rblb.it wss://nostr.red5d.dev wss://nostr.robosats.org wss://nostr.stakey.net wss://nostrcity-club.fly.dev wss://relay-dev.gulugulu.moe wss://relay.aarpia.com wss://relay.agentry.com wss://relay.bitmacro.cloud wss://relay.bullishbounty.com wss://relay.degmods.com wss://relay.flashapp.me wss://relay.grigic.org wss://relay.hackshed.dev wss://relay.kaleidoswap.com wss://relay.layer.systems wss://relay.nostr.blockhenge.com wss://relay.nostr.dev.br wss://relay.nostrmap.net wss://relay.novospes.com wss://relay.piazza.today wss://relay.routstr.com wss://testr.nymble.world"
     }
   },
   "bundle": {

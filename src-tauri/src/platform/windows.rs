@@ -1,13 +1,75 @@
+use super::ClickHandler;
 use crate::geometry::{Bounds, Point};
+use std::cell::RefCell;
 use windows_sys::Win32::{
     Foundation::{POINT, RECT},
     Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS},
+    System::LibraryLoader::GetModuleHandleW,
     UI::WindowsAndMessaging::{
-        GetAncestor, GetPhysicalCursorPos, GetShellWindow, GetWindowRect, GetWindowTextLengthW,
-        GetWindowThreadProcessId, SetWindowPos, WindowFromPoint, GA_ROOT, SWP_HIDEWINDOW,
-        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
+        CallNextHookEx, GetAncestor, GetPhysicalCursorPos, GetShellWindow, GetWindowRect,
+        GetWindowTextLengthW, GetWindowThreadProcessId, SetWindowPos, SetWindowsHookExW,
+        UnhookWindowsHookEx, WindowFromPoint, GA_ROOT, HHOOK, MSLLHOOKSTRUCT, SWP_HIDEWINDOW,
+        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, WH_MOUSE_LL,
+        WM_LBUTTONDOWN,
     },
 };
+
+struct MouseHook {
+    handle: HHOOK,
+    on_click: ClickHandler,
+}
+
+impl Drop for MouseHook {
+    fn drop(&mut self) {
+        unsafe { UnhookWindowsHookEx(self.handle) };
+    }
+}
+
+// The panel command and the low-level hook run on the same Windows message loop.
+thread_local! {
+    static MOUSE_HOOK: RefCell<Option<MouseHook>> = const { RefCell::new(None) };
+}
+
+pub fn set_click_handler(handler: Option<ClickHandler>) -> Result<(), String> {
+    MOUSE_HOOK.with(|slot| {
+        slot.replace(None);
+        if let Some(on_click) = handler {
+            let handle = unsafe {
+                SetWindowsHookExW(
+                    WH_MOUSE_LL,
+                    Some(mouse_event),
+                    GetModuleHandleW(std::ptr::null()),
+                    0,
+                )
+            };
+            if handle.is_null() {
+                return Err(format!(
+                    "Could not capture desktop clicks: {}",
+                    std::io::Error::last_os_error()
+                ));
+            }
+            slot.replace(Some(MouseHook { handle, on_click }));
+        }
+        Ok(())
+    })
+}
+
+unsafe extern "system" fn mouse_event(code: i32, message: usize, data: isize) -> isize {
+    if code == 0 && message == WM_LBUTTONDOWN as usize && data != 0 {
+        let point = unsafe { (*(data as *const MSLLHOOKSTRUCT)).pt };
+        MOUSE_HOOK.with(|slot| {
+            if let Ok(slot) = slot.try_borrow() {
+                if let Some(hook) = slot.as_ref() {
+                    (hook.on_click)(Point {
+                        x: point.x,
+                        y: point.y,
+                    });
+                }
+            }
+        });
+    }
+    unsafe { CallNextHookEx(std::ptr::null_mut(), code, message, data) }
+}
 
 pub fn cursor(_: &tauri::AppHandle) -> Option<Point> {
     let mut point = POINT { x: 0, y: 0 };

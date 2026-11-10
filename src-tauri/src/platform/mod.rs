@@ -1,12 +1,14 @@
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
-pub use windows::{cursor, set_overlay_visible, window_at};
+pub use windows::{cursor, set_click_handler, set_overlay_visible, window_at};
 
 #[cfg(not(windows))]
 mod portable;
 #[cfg(not(windows))]
-pub use portable::{cursor, set_overlay_visible, window_at};
+pub use portable::{cursor, set_click_handler, set_overlay_visible, window_at};
+
+pub type ClickHandler = Box<dyn Fn(crate::geometry::Point)>;
 
 pub fn desktop_areas_available() -> bool {
     !cfg!(target_os = "linux")

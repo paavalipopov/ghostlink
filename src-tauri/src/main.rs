@@ -1,13 +1,22 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod geometry;
+mod peer;
 mod platform;
 mod preview;
 
 use geometry::{Bounds, Drag, Sample};
+use peer::{PeerInput, PeerPointer, QueuedClick};
 use preview::{PadInput, Preview, TestPad};
 use serde::Serialize;
-use std::{sync::Mutex, thread, time::Duration};
+use std::{
+    sync::{
+        mpsc::{self, Receiver, SyncSender},
+        Mutex,
+    },
+    thread,
+    time::Duration,
+};
 use tauri::{
     AppHandle, Emitter, EventTarget, Manager, PhysicalPosition, PhysicalSize, WebviewWindow,
 };
@@ -17,6 +26,7 @@ struct Selection {
     area: Option<Bounds>,
     drag: Option<Bounds>,
     test_pad: TestPad,
+    peer_session: Option<u32>,
 }
 
 type Capture = Mutex<Selection>;
@@ -316,31 +326,96 @@ fn close_test_pad(window: WebviewWindow) -> Result<(), String> {
     hide_test_pad(&window)
 }
 
-fn watch_pointer(app: AppHandle) {
+#[tauri::command]
+fn set_peer_sharing(window: WebviewWindow, session: Option<u32>) -> Result<Option<String>, String> {
+    require_panel(&window)?;
+    let app = window.app_handle();
+    app.state::<Capture>().lock().unwrap().peer_session = session;
+    let _ = app.emit_to(
+        EventTarget::webview_window("overlay"),
+        "peer-pointers",
+        Vec::<PeerPointer>::new(),
+    );
+
+    let handler: Option<platform::ClickHandler> = session.map(|session| {
+        let app = app.clone();
+        let sender = app.state::<SyncSender<QueuedClick>>().inner().clone();
+        let handler: platform::ClickHandler = Box::new(move |point| {
+            let capture = app.state::<Capture>();
+            let Ok(state) = capture.try_lock() else {
+                return;
+            };
+            if state.peer_session != Some(session) || state.drag.is_some() || state.test_pad.open {
+                return;
+            }
+            if let Some(area) = state.area {
+                let sample = area.sample(point);
+                if sample.inside {
+                    let _ = sender.try_send((session, area, sample));
+                }
+            }
+        });
+        handler
+    });
+    Ok(platform::set_click_handler(handler).err())
+}
+
+#[tauri::command]
+fn show_peer_pointers(
+    window: WebviewWindow,
+    session: u32,
+    mut pointers: Vec<PeerPointer>,
+) -> Result<(), String> {
+    require_panel(&window)?;
+    if window.state::<Capture>().lock().unwrap().peer_session != Some(session) {
+        return Ok(());
+    }
+    pointers.retain(|pointer| (0.0..=1.0).contains(&pointer.x) && (0.0..=1.0).contains(&pointer.y));
+    pointers.truncate(8);
+    window
+        .app_handle()
+        .emit_to(
+            EventTarget::webview_window("overlay"),
+            "peer-pointers",
+            pointers,
+        )
+        .map_err(|error| error.to_string())
+}
+
+fn watch_pointer(app: AppHandle, clicks: Receiver<QueuedClick>) {
     let state = app.state::<Capture>();
     let mut last = None;
+    let mut last_shared = None;
     loop {
-        let (area, test_open, test_preview) = {
+        let (area, test_open, test_preview, session) = {
             let state = state.lock().unwrap();
             let area = if state.drag.is_some() {
                 None
             } else {
                 state.area
             };
-            (area, state.test_pad.open, state.test_pad.preview)
+            (
+                area,
+                state.test_pad.open,
+                state.test_pad.preview,
+                state.peer_session,
+            )
         };
-        let preview = area.and_then(|bounds| {
-            if test_open {
-                test_preview
-            } else {
-                let sample: Sample = bounds.sample(platform::cursor(&app)?);
-                sample.inside.then_some(Preview {
-                    sample,
-                    test: false,
-                    click_key: None,
-                })
-            }
+        let sample = area.filter(|_| !test_open).and_then(|bounds| {
+            let sample: Sample = bounds.sample(platform::cursor(&app)?);
+            sample.inside.then_some(sample)
         });
+        let preview = if test_open && area.is_some() {
+            test_preview
+        } else if session.is_none() {
+            sample.map(|sample| Preview {
+                sample,
+                test: false,
+                click_key: None,
+            })
+        } else {
+            None
+        };
         if last != preview {
             let _ = app.emit_to(
                 EventTarget::webview_window("overlay"),
@@ -349,18 +424,44 @@ fn watch_pointer(app: AppHandle) {
             );
             last = preview;
         }
+        for (click_session, click_area, sample) in clicks.try_iter() {
+            if session == Some(click_session) && area == Some(click_area) && !test_open {
+                let _ = app.emit_to(
+                    EventTarget::webview_window("panel"),
+                    "peer-input",
+                    PeerInput::Click {
+                        session: click_session,
+                        sample,
+                    },
+                );
+                last_shared = None;
+            }
+        }
+        let shared = session.map(|session| (session, sample));
+        if last_shared != shared {
+            if let Some((session, sample)) = shared {
+                let _ = app.emit_to(
+                    EventTarget::webview_window("panel"),
+                    "peer-input",
+                    PeerInput::Move { session, sample },
+                );
+            }
+            last_shared = shared;
+        }
         thread::sleep(Duration::from_millis(16));
     }
 }
 
 fn main() {
+    let (click_sender, clicks) = mpsc::sync_channel::<QueuedClick>(32);
     tauri::Builder::default()
         .manage(Capture::default())
-        .setup(|app| {
+        .manage(click_sender)
+        .setup(move |app| {
             let handle = app.handle().clone();
             thread::Builder::new()
                 .name("pointer-sampler".into())
-                .spawn(move || watch_pointer(handle))?;
+                .spawn(move || watch_pointer(handle, clicks))?;
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -393,7 +494,9 @@ fn main() {
             open_test_pad,
             test_pad_area,
             test_pad_input,
-            close_test_pad
+            close_test_pad,
+            set_peer_sharing,
+            show_peer_pointers
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Ghostlink Tauri prototype");

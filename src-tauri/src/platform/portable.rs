@@ -20,3 +20,10 @@ pub fn set_overlay_visible(window: &tauri::WebviewWindow, visible: bool) -> Resu
 pub fn window_at(_: Point) -> Option<Bounds> {
     None
 }
+
+pub fn set_click_handler(handler: Option<super::ClickHandler>) -> Result<(), String> {
+    if handler.is_some() {
+        return Err("Sending desktop click pings is available on Windows.".into());
+    }
+    Ok(())
+}

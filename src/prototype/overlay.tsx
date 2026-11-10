@@ -6,24 +6,50 @@ import type { Sample } from '../shared/protocol'
 import './overlay.css'
 
 type Preview = { sample: Sample; test: boolean; clickKey: number | null }
+type PeerPointer = {
+  id: string
+  name: string
+  color: string
+  x: number
+  y: number
+  clickKey: string | null
+}
 
 // This file mounts the overlay as a Vite entry point.
 // eslint-disable-next-line react-refresh/only-export-components
 function Overlay(): JSX.Element {
   const [preview, setPreview] = useState<Preview | null>(null)
+  const [peers, setPeers] = useState<PeerPointer[]>([])
 
   useEffect(() => {
     const subscription = listen<Preview | null>('pointer-preview', ({ payload }) =>
       setPreview(payload)
     )
+    const peerSubscription = listen<PeerPointer[]>('peer-pointers', ({ payload }) =>
+      setPeers(payload)
+    )
     return () => {
       void subscription.then((unlisten) => unlisten())
+      void peerSubscription.then((unlisten) => unlisten())
     }
   }, [])
 
   return (
     <div className="overlay">
       <div className="frame" />
+      {peers.map((peer) => (
+        <div
+          className="point"
+          key={peer.id}
+          data-testid="peer-pointer"
+          data-name={peer.name}
+          data-x={peer.x}
+          data-y={peer.y}
+          style={{ transform: `translate3d(${peer.x * 100}vw, ${peer.y * 100}vh, 0)` }}
+        >
+          <CursorMark name={peer.name} color={peer.color} clickKey={peer.clickKey} />
+        </div>
+      ))}
       {preview && (
         <div
           className="point"

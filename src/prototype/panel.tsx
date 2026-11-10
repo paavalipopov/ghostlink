@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client'
 import { Button } from '@renderer/components/ui/button'
 import { GhostMark, IconBug, IconDrag, IconFullScreen, IconWindow } from '@renderer/icons'
 import type { Bounds } from '../shared/coords'
+import { PeerControls } from './peer-controls'
 import './panel.css'
 
 type Display = { name: string; bounds: Bounds; scaleFactor: number }
@@ -75,8 +76,9 @@ function Panel(): JSX.Element {
           <GhostMark />
           Ghostlink
         </h1>
-        <p className="mt-1 text-xs text-muted-foreground">Local pointer preview</p>
       </header>
+
+      <PeerControls areaReady={area !== null && action === null} />
 
       <section className="space-y-3 rounded-lg border border-border bg-card p-3">
         <h2 className="text-sm font-medium">Shared display</h2>
