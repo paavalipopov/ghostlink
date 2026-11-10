@@ -3,6 +3,8 @@
 !ifndef BUILD_UNINSTALLER
   !include nsDialogs.nsh
   Var GhostlinkFolderInput
+  Var GhostlinkProgressState
+  !define MUI_CUSTOMFUNCTION_ABORT GhostlinkProgressClose
 
   ; Resolve scope before the first visible page, preserving existing installs.
   !macro customInstallMode
@@ -92,52 +94,54 @@
       Pop $0
       ExecShell "open" "${GHOSTLINK_INFO_URL}"
     FunctionEnd
+
+    !define MUI_PAGE_CUSTOMFUNCTION_LEAVE GhostlinkProgressLeave
   !macroend
 
+  ; Keep the stock progress screen as the last visible page.
   !macro customFinishPage
-    Page custom GhostlinkFinishCreate
+    Function GhostlinkProgressLeave
+      IfAbort done
 
-    Function GhostlinkFinishCreate
-      !insertmacro MUI_HEADER_TEXT "Ghostlink is installed" "You're ready to connect."
-      nsDialogs::Create 1018
-      Pop $0
-      ${If} $0 == error
+      ; The first leave callback is NSIS advancing after the install section.
+      ; Keep the completed progress screen visible until a button is chosen.
+      ${If} $GhostlinkProgressState == ""
+        StrCpy $GhostlinkProgressState "complete"
+        !insertmacro MUI_HEADER_TEXT "Ghostlink is installed" "You're ready to connect."
+        GetDlgItem $0 $HWNDPARENT 3
+        ShowWindow $0 ${SW_HIDE}
+        GetDlgItem $0 $HWNDPARENT 1
+        SendMessage $0 ${WM_SETTEXT} 0 "STR:Start the app"
+        EnableWindow $0 1
+        GetDlgItem $1 $HWNDPARENT 2
+        SendMessage $1 ${WM_SETTEXT} 0 "STR:Close"
+        EnableWindow $1 1
+        System::Call 'user32::GetSystemMenu(p $HWNDPARENT, i 0)p.r2'
+        System::Call 'user32::EnableMenuItem(p r2, i 0xF060, i 0)i'
+        SendMessage $HWNDPARENT ${WM_NEXTDLGCTL} $1 1
         Abort
       ${EndIf}
-      ${NSD_CreateLabel} 0 0 100% 26u "Open Ghostlink now, or use its shortcut later."
-      Pop $0
-      ${NSD_CreateButton} 0 48u 85u 18u "Close"
-      Pop $0
-      ${NSD_OnClick} $0 GhostlinkFinishClose
-      ${NSD_CreateButton} 95u 48u 180u 18u "Close and open Ghostlink"
-      Pop $0
-      ${NSD_OnClick} $0 GhostlinkFinishOpen
-      GetDlgItem $0 $HWNDPARENT 1
-      ShowWindow $0 ${SW_HIDE}
-      GetDlgItem $0 $HWNDPARENT 2
-      ShowWindow $0 ${SW_HIDE}
-      GetDlgItem $0 $HWNDPARENT 3
-      ShowWindow $0 ${SW_HIDE}
-      nsDialogs::Show
-    FunctionEnd
 
-    Function GhostlinkFinishClose
-      Pop $0
-      SetErrorLevel 0
-      Quit
-    FunctionEnd
-
-    Function GhostlinkFinishOpen
-      Pop $0
-      HideWindow
-      ${If} ${isUpdated}
-        StrCpy $1 "--updated"
-      ${Else}
-        StrCpy $1 ""
+      ${If} $GhostlinkProgressState == "complete"
+        HideWindow
+        ${If} ${isUpdated}
+          StrCpy $1 "--updated"
+        ${Else}
+          StrCpy $1 ""
+        ${EndIf}
+        ${StdUtils.ExecShellAsUser} $0 "$launchLink" "open" "$1"
       ${EndIf}
-      ${StdUtils.ExecShellAsUser} $0 "$launchLink" "open" "$1"
-      SetErrorLevel 0
-      Quit
+      SetAutoClose true
+    done:
+    FunctionEnd
+
+    Function GhostlinkProgressClose
+      ${If} $GhostlinkProgressState == "complete"
+        ; Route Close through the successful completion path.
+        StrCpy $GhostlinkProgressState "close"
+        System::Call 'user32::PostMessageW(p $HWNDPARENT, i ${WM_COMMAND}, p 1, p 0)i'
+        Abort
+      ${EndIf}
     FunctionEnd
   !macroend
 !endif
