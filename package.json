@@ -23,7 +23,11 @@
     "postinstall": "install-electron && electron-builder install-app-deps",
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
-    "release:win": "npm run build && electron-builder --win --x64 --publish always"
+    "release:win": "npm run build && electron-builder --win --x64 --publish always",
+    "prototype:dev": "tauri dev",
+    "prototype:build": "tauri build --target x86_64-pc-windows-msvc --bundles nsis",
+    "prototype:ui:dev": "vite --config vite.prototype.config.mts",
+    "prototype:ui:build": "tsc -p tsconfig.prototype.json && vite build --config vite.prototype.config.mts"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
@@ -43,6 +47,8 @@
     "@electron-toolkit/eslint-config-ts": "^4.0.0",
     "@electron-toolkit/tsconfig": "^2.0.0",
     "@tailwindcss/vite": "^4.3.4",
+    "@tauri-apps/api": "^2.12.4",
+    "@tauri-apps/cli": "^2.12.4",
     "@types/node": "^24.19.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

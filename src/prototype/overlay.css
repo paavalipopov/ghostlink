@@ -1,0 +1,27 @@
+html,
+body,
+.overlay {
+  background: transparent;
+  margin: 0;
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.overlay .frame {
+  inset: 0;
+}
+
+.point {
+  position: absolute;
+}
+
+.mark {
+  position: absolute;
+  left: 13px;
+  top: 13px;
+}

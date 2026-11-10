@@ -1,0 +1,5 @@
+{
+  "extends": "@electron-toolkit/tsconfig/tsconfig.web.json",
+  "include": ["src/prototype/**/*"],
+  "compilerOptions": { "jsx": "react-jsx", "noEmit": true }
+}

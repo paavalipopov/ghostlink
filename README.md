@@ -45,6 +45,8 @@ Choose a folder on the first setup screen, then click **Install**. The default i
 
 `npm run dev` runs Ghostlink from source.
 
+The separate [Windows Tauri prototype](docs/tauri-prototype.md) tests local pointer capture and the overlay. The build and release commands above still use Electron.
+
 ## Release
 
 Set the version in `package.json`, commit the change, and push a matching tag such as `v0.7.0`. The Windows release workflow runs the tests and production build, creates the NSIS installer and update metadata, uploads them to a draft GitHub Release, then publishes the release after every artifact is present.

@@ -1,0 +1,39 @@
+:root {
+  color-scheme: dark;
+  background: #161412;
+  color: #f4efe6;
+  font:
+    15px/1.5 'Segoe UI',
+    sans-serif;
+}
+
+main {
+  padding: 12px 18px;
+}
+
+h1 {
+  font-size: 24px;
+}
+
+label,
+select {
+  display: block;
+  width: 100%;
+}
+
+button,
+select {
+  font: inherit;
+  padding: 6px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+[role='alert'] {
+  color: #ffad98;
+}
