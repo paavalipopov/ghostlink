@@ -17,7 +17,8 @@ export default defineConfig({
       input: [
         local('./src/prototype/index.html'),
         local('./src/prototype/overlay.html'),
-        local('./src/prototype/picker.html')
+        local('./src/prototype/picker.html'),
+        local('./src/prototype/test-pad.html')
       ]
     }
   }

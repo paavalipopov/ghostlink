@@ -3,14 +3,14 @@ import { listen } from '@tauri-apps/api/event'
 import { useCallback, useEffect, useState, type JSX } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Button } from '@renderer/components/ui/button'
-import { GhostMark, IconDrag, IconFullScreen, IconWindow } from '@renderer/icons'
+import { GhostMark, IconBug, IconDrag, IconFullScreen, IconWindow } from '@renderer/icons'
 import type { Bounds } from '../shared/coords'
 import './panel.css'
 
 type Display = { name: string; bounds: Bounds; scaleFactor: number }
 type Controls = { displays: Display[]; desktopAreas: boolean; pickWindow: boolean }
 type AreaChange = { area: Bounds | null; error: string | null }
-type Action = 'display' | 'drag' | 'window'
+type Action = 'display' | 'drag' | 'window' | 'pad'
 
 function describe({ x, y, width, height }: Bounds): string {
   return `(${x}, ${y}) · ${width} × ${height} px`
@@ -182,6 +182,23 @@ function Panel(): JSX.Element {
           )
         )}
       </div>
+      <Button
+        type="button"
+        variant="outline"
+        className="w-full"
+        disabled={disabled || !area}
+        title={
+          area ? 'Open the private test trackpad' : 'Choose a shared area to test your pointer'
+        }
+        onClick={() => {
+          setAction('pad')
+          setError(null)
+          void invoke('open_test_pad').then(() => setAction(null), failed)
+        }}
+      >
+        <IconBug />
+        Test pointer
+      </Button>
       {error && (
         <p role="alert" className="text-xs text-[#ffad98]">
           {error}

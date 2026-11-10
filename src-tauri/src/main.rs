@@ -2,8 +2,10 @@
 
 mod geometry;
 mod platform;
+mod preview;
 
 use geometry::{Bounds, Drag, Sample};
+use preview::{PadInput, Preview, TestPad};
 use serde::Serialize;
 use std::{sync::Mutex, thread, time::Duration};
 use tauri::{
@@ -14,6 +16,7 @@ use tauri::{
 struct Selection {
     area: Option<Bounds>,
     drag: Option<Bounds>,
+    test_pad: TestPad,
 }
 
 type Capture = Mutex<Selection>;
@@ -135,7 +138,16 @@ fn apply_area(app: &AppHandle, area: Option<Bounds>) -> Result<AreaChange, Strin
             ),
         },
     };
-    state.lock().unwrap().area = area;
+    {
+        let mut state = state.lock().unwrap();
+        state.area = area;
+        if area != previous {
+            state.test_pad.preview = None;
+        }
+    }
+    if area != previous {
+        let _ = app.emit_to(EventTarget::webview_window("test-pad"), "test-area", area);
+    }
     Ok(AreaChange { area, error })
 }
 
@@ -211,7 +223,12 @@ fn begin_drag(window: WebviewWindow, bounds: Bounds) -> Result<(), String> {
         .ok_or("Overlay is missing.")?;
     place_window(&picker, bounds)?;
     platform::set_overlay_visible(&overlay, false)?;
-    app.state::<Capture>().lock().unwrap().drag = Some(bounds);
+    {
+        let state = app.state::<Capture>();
+        let mut state = state.lock().unwrap();
+        state.drag = Some(bounds);
+        state.test_pad.preview = None;
+    }
     if let Err(error) = picker.show().and_then(|()| picker.set_focus()) {
         settle_drag(&picker, None)?;
         return Err(error.to_string());
@@ -246,28 +263,91 @@ fn finish_drag(window: WebviewWindow, drag: Option<Drag>) -> Result<(), String> 
     settle_drag(&window, drag)
 }
 
+#[tauri::command]
+fn open_test_pad(window: WebviewWindow) -> Result<(), String> {
+    require_selection(&window)?;
+    let app = window.app_handle();
+    let state = app.state::<Capture>();
+    if state.lock().unwrap().area.is_none() {
+        return Err("Choose a shared area before opening the test trackpad.".into());
+    }
+    let pad = app
+        .get_webview_window("test-pad")
+        .ok_or("Test trackpad is missing.")?;
+    pad.show().map_err(|error| error.to_string())?;
+    state.lock().unwrap().test_pad.open = true;
+    pad.set_focus().map_err(|error| error.to_string())
+}
+
+fn require_test_pad(window: &WebviewWindow) -> Result<(), String> {
+    if window.label() == "test-pad" {
+        Ok(())
+    } else {
+        Err("Only the test trackpad can send test input.".into())
+    }
+}
+
+#[tauri::command]
+fn test_pad_area(window: WebviewWindow) -> Result<Option<Bounds>, String> {
+    require_test_pad(&window)?;
+    Ok(window.state::<Capture>().lock().unwrap().area)
+}
+
+#[tauri::command]
+fn test_pad_input(window: WebviewWindow, input: Option<PadInput>) -> Result<(), String> {
+    require_test_pad(&window)?;
+    let capture = window.state::<Capture>();
+    let mut state = capture.lock().unwrap();
+    if state.area.is_some() && state.drag.is_none() {
+        state.test_pad.update(input)?;
+    }
+    Ok(())
+}
+
+fn hide_test_pad(window: &WebviewWindow) -> Result<(), String> {
+    window.hide().map_err(|error| error.to_string())?;
+    window.state::<Capture>().lock().unwrap().test_pad.close();
+    Ok(())
+}
+
+#[tauri::command]
+fn close_test_pad(window: WebviewWindow) -> Result<(), String> {
+    require_test_pad(&window)?;
+    hide_test_pad(&window)
+}
+
 fn watch_pointer(app: AppHandle) {
     let state = app.state::<Capture>();
-    let mut last: Option<Sample> = None;
+    let mut last = None;
     loop {
-        let area = {
+        let (area, test_open, test_preview) = {
             let state = state.lock().unwrap();
-            if state.drag.is_some() {
+            let area = if state.drag.is_some() {
                 None
             } else {
                 state.area
-            }
+            };
+            (area, state.test_pad.open, state.test_pad.preview)
         };
-        let sample = area
-            .and_then(|bounds| platform::cursor(&app).map(|point| bounds.sample(point)))
-            .unwrap_or_default();
-        if last != Some(sample) {
+        let preview = area.and_then(|bounds| {
+            if test_open {
+                test_preview
+            } else {
+                let sample: Sample = bounds.sample(platform::cursor(&app)?);
+                sample.inside.then_some(Preview {
+                    sample,
+                    test: false,
+                    click_key: None,
+                })
+            }
+        });
+        if last != preview {
             let _ = app.emit_to(
                 EventTarget::webview_window("overlay"),
-                "pointer-sample",
-                sample,
+                "pointer-preview",
+                preview,
             );
-            last = Some(sample);
+            last = preview;
         }
         thread::sleep(Duration::from_millis(16));
     }
@@ -295,13 +375,25 @@ fn main() {
                     let _ = settle_drag(&picker, None);
                 }
             }
+            if let ("test-pad", tauri::WindowEvent::CloseRequested { api, .. }) =
+                (window.label(), event)
+            {
+                api.prevent_close();
+                if let Some(pad) = window.app_handle().get_webview_window("test-pad") {
+                    let _ = hide_test_pad(&pad);
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             controls,
             select_display,
             select_window,
             begin_drag,
-            finish_drag
+            finish_drag,
+            open_test_pad,
+            test_pad_area,
+            test_pad_input,
+            close_test_pad
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Ghostlink Tauri prototype");
