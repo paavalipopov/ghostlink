@@ -1,6 +1,37 @@
 # Fullscreen development continuation
 
-## State on November 12, 2026
+## Resumed desktop verification — November 12, 2026
+
+Tested the rebuilt candidate through real Windows mouse/keyboard input:
+
+- Before start: native foreground HWND was the Ghostlink panel (19928378),
+  while the selected animated source was HWND 10685314. Clicking the actual
+  Dev fullscreen button started real capture and changed foreground to the
+  source. No -3 occurred. This covers the previously missed activation path.
+- A fullscreen guest was visibly present with Frame off. Clicking its arrow
+  reached the underlying source: the fixture's click count changed from 1 to 2.
+- Actual Ctrl+Alt+F11 removed the scaling window and helper, restored clipping
+  from source bounds to [0,0,1920,1200], and kept cursor visibility/speed intact.
+- Forced termination of a capture-active helper removed the scaling window,
+  restored clipping/visibility/speed, and retained the local guest session.
+- Abruptly terminating the test Ghostlink app during capture also ended its
+  helper; no fullscreen-host process remained.
+- The isolated test processes were cleaned up. The user's installed app was
+  not replaced or terminated.
+
+**New remaining defect:** a clean hotkey exit can race the Rust watchdog's
+pending status request. The helper exits correctly, but the panel can show
+"Fullscreen helper did not respond within two seconds." Treat clean process
+exit/EOF as idle in this race; retain failed status for actual nonzero crashes.
+This reporting defect has NOT been fixed yet.
+
+Explorer, Telegram, game-specific capture/focus behavior, detailed edge mapping,
+Alt-Tab/camera behavior and two-PC testing remain pending. The user must run the
+rebuilt candidate, not the old installed/dist copy, to retest the -3 report.
+The candidate focus fix is validated on the ordinary panel-to-fixture path,
+not yet confirmed individually on all three reported applications.
+
+## Prior checkpoint state on November 12, 2026
 
 Workspace: C:\Users\paava\.codex\worktrees\b4c0\ghostlink
 Development branch: codex/tauri-windows-prototype

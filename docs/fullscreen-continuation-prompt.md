@@ -1,3 +1,5 @@
+Latest update: read the resumed verification section of docs/fullscreen-development-continuation.md first. The actual foreground-panel button path, visible-guest click-through, exit chord and capture-active crash/owner-exit checks have now passed on the animated Win32 fixture. Fix the newly discovered false timeout status after clean hotkey exit, then retest Explorer/Telegram/the game and refresh artifacts. The older instructions below describe the prior checkpoint.
+
 Continue Ghostlink's bundled Magpie fullscreen prototype on Windows.
 
 Use C:\Users\paava\.codex\worktrees\b4c0\ghostlink, branch
