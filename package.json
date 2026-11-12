@@ -4,6 +4,7 @@
   "description": "A ghost pointer shared between two copies of a game, with an optional click ping.",
   "main": "./out/main/index.js",
   "author": "Ghostlink",
+  "license": "GPL-3.0-or-later",
   "homepage": "https://github.com/paavalipopov/ghostlink",
   "repository": {
     "type": "git",
@@ -15,8 +16,12 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
-    "test": "vitest run",
-    "test:link": "npm run build && node scripts/check-link.mjs",
+    "test": "tsc --noEmit -p tsconfig.test.json && vitest run",
+    "test:rust": "cargo test --locked --manifest-path src-tauri/Cargo.toml",
+    "test:all": "npm test && npm run test:rust",
+    "test:tauri:desktop": "tauri build --target x86_64-pc-windows-msvc --no-bundle -- --locked && node scripts/check-tauri.mjs",
+    "test:electron:link": "npm run build && node scripts/check-link.mjs",
+    "test:link": "npm run test:electron:link",
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
@@ -26,8 +31,11 @@
     "release:win": "npm run build && electron-builder --win --x64 --publish always",
     "prototype:dev": "tauri dev",
     "prototype:build": "tauri build --target x86_64-pc-windows-msvc --bundles nsis",
-    "prototype:ui:dev": "vite --config vite.prototype.config.mts",
-    "prototype:ui:build": "tsc -p tsconfig.prototype.json && vite build --config vite.prototype.config.mts"
+    "test:fullscreen:native": "node scripts/check-fullscreen-native.mjs",
+    "fullscreen:source": "python scripts/package-fullscreen-source.py",
+    "fullscreen:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-fullscreen-host.ps1",
+    "prototype:ui:dev": "node scripts/prepare-fullscreen.mjs && vite --config vite.prototype.config.mts",
+    "prototype:ui:build": "node scripts/prepare-fullscreen.mjs && tsc -p tsconfig.prototype.json && vite build --config vite.prototype.config.mts"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",

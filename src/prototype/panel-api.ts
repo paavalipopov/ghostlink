@@ -12,7 +12,7 @@ export type Controls = {
   desktopAreas: boolean
   pickWindow: boolean
 }
-type AreaChange = { area: Bounds | null; error: string | null }
+type AreaChange = { area: Bounds | null; error: string | null; tracking?: boolean }
 type PeerInput = { kind: 'move' | 'click'; session: number; sample: Sample | null }
 
 function subscribe<T>(event: string, callback: (payload: T) => void): () => void {
@@ -38,6 +38,7 @@ export function createPanelApi(
 ): PanelBridge {
   let preferred: Display | undefined
   let currentArea: Bounds | null = null
+  let frameInitialized = false
   let marks = false
   let marking = false
   let sequence = 0
@@ -112,13 +113,15 @@ export function createPanelApi(
       }
     },
     setShowFrame(show) {
-      if (show && !currentArea) void selectDisplayArea()
+      void invoke('set_show_frame', { show }).catch(console.error)
+      if (!frameInitialized && !currentArea) void selectDisplayArea()
+      frameInitialized = true
     },
     onPlayArea(callback) {
       areaListeners.add(callback)
       const stop = subscribe<AreaChange>('area-change', (change) => {
         apply(change)
-        setMarking(false)
+        if (!change.tracking) setMarking(false)
       })
       return () => {
         stop()

@@ -85,37 +85,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn projects_relative_to_negative_origins_at_different_scales() {
-        for (display, scale) in [
-            (
-                Bounds {
-                    x: -2000,
-                    y: 0,
-                    width: 2000,
-                    height: 1250,
-                },
-                1.25,
-            ),
-            (
-                Bounds {
-                    x: 0,
-                    y: -1500,
-                    width: 2400,
-                    height: 1500,
-                },
-                1.5,
-            ),
-        ] {
-            let area = display;
-            let sample = area.sample(Point {
-                x: area.x + 150,
-                y: area.y + 75,
-            });
-            assert!(sample.inside);
-            // The marker is positioned as a percentage of the overlay's CSS viewport.
-            assert!((sample.x * f64::from(area.width) / scale - 150.0 / scale).abs() < 1e-9);
-            assert!((sample.y * f64::from(area.height) / scale - 75.0 / scale).abs() < 1e-9);
-        }
+    fn normalizes_physical_pixels_on_monitors_left_of_and_above_primary() {
+        let left = Bounds::from_edges(-2000, 0, 0, 1250).unwrap();
+        assert_eq!(
+            left.sample(Point { x: -1500, y: 625 }),
+            Sample {
+                x: 0.25,
+                y: 0.5,
+                inside: true
+            }
+        );
+        let above = Bounds::from_edges(0, -1500, 2400, 0).unwrap();
+        assert_eq!(
+            above.sample(Point { x: 1800, y: -1125 }),
+            Sample {
+                x: 0.75,
+                y: 0.25,
+                inside: true
+            }
+        );
     }
 
     #[test]
@@ -126,8 +114,22 @@ mod tests {
             width: 60,
             height: 24,
         };
-        assert!(area.sample(Point { x: -100, y: -40 }).inside);
-        assert!(area.sample(Point { x: -41, y: -17 }).inside);
+        assert_eq!(
+            area.sample(Point { x: -100, y: -40 }),
+            Sample {
+                x: 0.0,
+                y: 0.0,
+                inside: true
+            }
+        );
+        assert_eq!(
+            area.sample(Point { x: -41, y: -17 }),
+            Sample {
+                x: 59.0 / 60.0,
+                y: 23.0 / 24.0,
+                inside: true
+            }
+        );
         for (x, y) in [(-101, -40), (-100, -41), (-40, -40), (-100, -16)] {
             assert_eq!(area.sample(Point { x, y }), Sample::default());
         }

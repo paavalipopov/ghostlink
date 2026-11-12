@@ -4,6 +4,10 @@
 
 Build a local, unpublished Magpie-based fullscreen helper for Ghostlink. The current stack is Tauri 2, Rust, React/TypeScript, and WebView2 on Windows. Keep inexpensive Linux compatibility in shared code and isolate Windows-specific code. Electron no longer needs to remain runnable or receive reference testing; preserve shared UI and peer code when removing obsolete Electron-only pieces.
 
+Implementation and local build/trial results are now recorded in
+[bundled-fullscreen-prototype.md](bundled-fullscreen-prototype.md). The final
+coordinated hotkey/click-through/game pass remains open.
+
 ## Starting point
 
 Continue in `C:\Users\paava\.codex\worktrees\b4c0\ghostlink`, branch `codex/tauri-windows-prototype`. Inspect Git status first and preserve the substantial uncommitted application/test changes. The documentation is saved on `main`, but those application changes are not yet merged. Do not start from a fresh checkout, reset, or clean this worktree. Exclude local `.codex/` configuration, credentials, and build artifacts from commits.

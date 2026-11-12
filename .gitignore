@@ -9,3 +9,4 @@ out
 /.cargo-prototype/
 /src-tauri/target/
 /src-tauri/gen/
+/resources/fullscreen/

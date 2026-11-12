@@ -1,3 +1,4 @@
+import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { useEffect, useState, type JSX } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -22,6 +23,7 @@ function Overlay(): JSX.Element {
   const [peers, setPeers] = useState<PeerPointer[]>([])
   const [ghostMarks, setGhostMarks] = useState(false)
   const [pickCount, setPickCount] = useState<number | null>(null)
+  const [showFrame, setShowFrame] = useState(false)
   const shape = ghostMarks ? 'ghost' : 'arrow'
 
   useEffect(() => {
@@ -37,17 +39,31 @@ function Overlay(): JSX.Element {
     const pickSubscription = listen<number | null>('pick-count', ({ payload }) =>
       setPickCount(payload)
     )
+    let disposed = false
+    let frameChanged = false
+    const frameSubscription = listen<boolean>('show-frame', ({ payload }) => {
+      frameChanged = true
+      if (!disposed) setShowFrame(payload)
+    })
+    void frameSubscription
+      .then(() => invoke<boolean>('overlay_frame_visible'))
+      .then((visible) => {
+        if (!disposed && !frameChanged) setShowFrame(visible)
+      })
+      .catch(console.error)
     return () => {
+      disposed = true
       void subscription.then((unlisten) => unlisten())
       void peerSubscription.then((unlisten) => unlisten())
       void marksSubscription.then((unlisten) => unlisten())
       void pickSubscription.then((unlisten) => unlisten())
+      void frameSubscription.then((unlisten) => unlisten())
     }
   }, [])
 
   return (
     <div className="overlay">
-      <div className="frame" />
+      {showFrame && <div className="frame" />}
       {pickCount !== null && (
         <div className="mark-banner" data-testid="pick-count">
           <div className="mark-count">{pickCount}</div>

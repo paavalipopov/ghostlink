@@ -1,5 +1,6 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod fullscreen;
 mod geometry;
 mod peer;
 mod platform;
@@ -12,6 +13,7 @@ use preview::{PadInput, TestPad};
 use serde::Serialize;
 use std::{
     sync::{
+        atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, SyncSender},
         Arc, Mutex,
     },
@@ -26,11 +28,39 @@ use tauri::{
 #[derive(Default)]
 struct Selection {
     area: Option<Bounds>,
+    input_area: Option<Bounds>,
+    tracked_window: Option<platform::WindowTarget>,
+    frame_hidden: bool,
     drag: Option<Bounds>,
     test_pad: TestPad,
     peer_session: Option<u32>,
     pick_displays: Option<Arc<[Display]>>,
     pad_code: Option<String>,
+}
+
+impl Selection {
+    fn sharing_area(&self) -> Option<Bounds> {
+        if self.area.is_none()
+            || self.drag.is_some()
+            || self.test_pad.open
+            || self.peer_session.is_none()
+        {
+            return None;
+        }
+        self.input_area
+    }
+
+    fn update_window_mapping(&mut self, mapping: Option<platform::WindowArea>) -> bool {
+        let area = mapping.map(|area| area.display);
+        let input = mapping.map(|area| area.input);
+        if self.area == area && self.input_area == input {
+            return false;
+        }
+        self.area = area;
+        self.input_area = input;
+        self.test_pad.preview = None;
+        true
+    }
 }
 
 type Capture = Mutex<Selection>;
@@ -57,6 +87,7 @@ struct Controls {
 struct AreaChange {
     area: Option<Bounds>,
     error: Option<String>,
+    tracking: bool,
 }
 
 fn list_displays(window: &WebviewWindow) -> tauri::Result<Vec<Display>> {
@@ -144,7 +175,10 @@ fn apply_area(app: &AppHandle, area: Option<Bounds>) -> Result<AreaChange, Strin
         .get_webview_window("overlay")
         .ok_or("Overlay is missing.")?;
     let state = app.state::<Capture>();
-    let previous = state.lock().unwrap().area;
+    let (previous, previous_input, previous_target) = {
+        let state = state.lock().unwrap();
+        (state.area, state.input_area, state.tracked_window)
+    };
     let (area, error) = match configure_overlay(&overlay, area) {
         Ok(()) => (area, None),
         Err(error) => match configure_overlay(&overlay, previous) {
@@ -160,6 +194,13 @@ fn apply_area(app: &AppHandle, area: Option<Bounds>) -> Result<AreaChange, Strin
     {
         let mut state = state.lock().unwrap();
         state.area = area;
+        if error.is_some() && area == previous {
+            state.input_area = previous_input;
+            state.tracked_window = previous_target;
+        } else {
+            state.input_area = area;
+            state.tracked_window = None;
+        }
         if area != previous {
             state.test_pad.preview = None;
         }
@@ -167,7 +208,54 @@ fn apply_area(app: &AppHandle, area: Option<Bounds>) -> Result<AreaChange, Strin
     if area != previous {
         let _ = app.emit_to(EventTarget::webview_window("test-pad"), "test-area", area);
     }
-    Ok(AreaChange { area, error })
+    app.state::<fullscreen::Service>().stop();
+    Ok(AreaChange {
+        area,
+        error,
+        tracking: false,
+    })
+}
+
+fn refresh_window_area(app: &AppHandle) {
+    let capture = app.state::<Capture>();
+    let (target, previous, dragging) = {
+        let state = capture.lock().unwrap();
+        (state.tracked_window, state.area, state.drag.is_some())
+    };
+    let Some(target) = target else { return };
+    if dragging {
+        return;
+    }
+    let Some(overlay) = app.get_webview_window("overlay") else {
+        return;
+    };
+    let mut mapping = platform::window_area(target);
+    let mut area = mapping.map(|area| area.display);
+    let mut error = None;
+    if area != previous {
+        if let Err(message) = configure_overlay(&overlay, area) {
+            let _ = platform::set_overlay_visible(&overlay, false);
+            area = None;
+            mapping = None;
+            error = Some(message);
+        }
+    }
+    let changed = capture.lock().unwrap().update_window_mapping(mapping);
+    if changed {
+        let _ = app.emit_to(EventTarget::webview_window("test-pad"), "test-area", area);
+        let _ = app.emit_to(
+            EventTarget::webview_window("panel"),
+            "area-change",
+            AreaChange {
+                area,
+                error,
+                tracking: true,
+            },
+        );
+    }
+    if area.is_some() {
+        platform::keep_overlay_above(&overlay, target);
+    }
 }
 
 fn require_selection(window: &WebviewWindow) -> Result<(), String> {
@@ -236,6 +324,24 @@ fn set_ghost_marks(window: WebviewWindow, enabled: bool) -> Result<(), String> {
             enabled,
         )
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn set_show_frame(window: WebviewWindow, show: bool) -> Result<(), String> {
+    require_panel(&window)?;
+    window.state::<Capture>().lock().unwrap().frame_hidden = !show;
+    window
+        .app_handle()
+        .emit_to(EventTarget::webview_window("overlay"), "show-frame", show)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn overlay_frame_visible(window: WebviewWindow) -> Result<bool, String> {
+    if window.label() != "overlay" {
+        return Err("Only the overlay can read its frame state.".into());
+    }
+    Ok(!window.state::<Capture>().lock().unwrap().frame_hidden)
 }
 
 #[tauri::command]
@@ -317,22 +423,31 @@ fn select_window(window: WebviewWindow) -> Result<AreaChange, String> {
     let overlay = app
         .get_webview_window("overlay")
         .ok_or("Overlay is missing.")?;
-    let display = list_displays(&window)
+    list_displays(&window)
         .map_err(|error| error.to_string())?
         .into_iter()
         .find(|display| display.bounds.sample(point).inside)
         .ok_or("Point at a window on a connected display and try again.")?;
     platform::set_overlay_visible(&overlay, false)?;
-    let area = platform::window_at(point).and_then(|bounds| bounds.intersect(display.bounds));
+    let target = platform::window_at(point);
+    let area = target.and_then(platform::window_area);
     if let Some(area) = area {
-        apply_area(app, Some(area))
-    } else {
-        let previous = app.state::<Capture>().lock().unwrap().area;
-        let mut result = apply_area(app, previous)?;
+        let result = apply_area(app, Some(area.display))?;
         if result.error.is_none() {
-            result.error = Some("Point at another app window and try again.".into());
+            let capture = app.state::<Capture>();
+            let mut state = capture.lock().unwrap();
+            state.input_area = Some(area.input);
+            state.tracked_window = target;
         }
         Ok(result)
+    } else {
+        let previous = app.state::<Capture>().lock().unwrap().area;
+        configure_overlay(&overlay, previous)?;
+        Ok(AreaChange {
+            area: previous,
+            error: Some("Point at another app window and try again.".into()),
+            tracking: false,
+        })
     }
 }
 
@@ -355,6 +470,7 @@ fn begin_drag(window: WebviewWindow, bounds: Bounds) -> Result<(), String> {
         state.drag = Some(bounds);
         state.test_pad.preview = None;
     }
+    app.state::<fullscreen::Service>().stop();
     if let Err(error) = picker.show().and_then(|()| picker.set_focus()) {
         settle_drag(&picker, None)?;
         return Err(error.to_string());
@@ -373,7 +489,19 @@ fn settle_drag(picker: &WebviewWindow, drag: Option<Drag>) -> Result<(), String>
     let Some(bounds) = bounds else { return Ok(()) };
     let completed = drag.is_some();
     let drawn = drag.and_then(|drag| bounds.drag_area(drag));
-    let mut result = apply_area(app, drawn.or(previous))?;
+    let mut result = if let Some(drawn) = drawn {
+        apply_area(app, Some(drawn))?
+    } else {
+        let overlay = app
+            .get_webview_window("overlay")
+            .ok_or("Overlay is missing.")?;
+        configure_overlay(&overlay, previous)?;
+        AreaChange {
+            area: previous,
+            error: None,
+            tracking: false,
+        }
+    };
     if completed && drawn.is_none() && result.error.is_none() {
         result.error = Some("Draw a frame at least 40 × 40 pixels.".into());
     }
@@ -492,10 +620,10 @@ fn set_peer_sharing(window: WebviewWindow, session: Option<u32>) -> Result<Optio
             let Ok(state) = capture.try_lock() else {
                 return;
             };
-            if state.peer_session != Some(session) || state.drag.is_some() || state.test_pad.open {
+            if state.peer_session != Some(session) {
                 return;
             }
-            if let Some(area) = state.area {
+            if let Some(area) = state.sharing_area() {
                 let sample = area.sample(point);
                 if sample.inside {
                     let _ = sender.try_send((session, area, sample));
@@ -534,8 +662,24 @@ fn watch_pointer(app: AppHandle, clicks: Receiver<QueuedClick>) {
     let mut last = None;
     let mut last_shared = None;
     let mut last_marker_position = None;
+    let tracking_pending = Arc::new(AtomicBool::new(false));
+    let mut tick = 0;
     loop {
-        let (area, test_open, test_preview, session, pick_displays) = {
+        tick = (tick + 1) % 6;
+        if tick == 0 && !tracking_pending.swap(true, Ordering::Relaxed) {
+            let pending = tracking_pending.clone();
+            let handle = app.clone();
+            if app
+                .run_on_main_thread(move || {
+                    refresh_window_area(&handle);
+                    pending.store(false, Ordering::Relaxed);
+                })
+                .is_err()
+            {
+                tracking_pending.store(false, Ordering::Relaxed);
+            }
+        }
+        let (area, input_area, test_open, test_preview, session, pick_displays) = {
             let state = state.lock().unwrap();
             let area = if state.drag.is_some() {
                 None
@@ -544,6 +688,7 @@ fn watch_pointer(app: AppHandle, clicks: Receiver<QueuedClick>) {
             };
             (
                 area,
+                state.sharing_area(),
                 state.test_pad.open,
                 state.test_pad.preview,
                 state.peer_session,
@@ -568,12 +713,10 @@ fn watch_pointer(app: AppHandle, clicks: Receiver<QueuedClick>) {
             }
             last_marker_position = marker_position;
         }
-        let sample = area
-            .filter(|_| session.is_some() && !test_open)
-            .and_then(|bounds| {
-                let sample: Sample = bounds.sample(point?);
-                sample.inside.then_some(sample)
-            });
+        let sample = input_area.and_then(|bounds| {
+            let sample: Sample = bounds.sample(point?);
+            sample.inside.then_some(sample)
+        });
         let preview = if test_open && area.is_some() {
             test_preview
         } else {
@@ -588,7 +731,7 @@ fn watch_pointer(app: AppHandle, clicks: Receiver<QueuedClick>) {
             last = preview;
         }
         for (click_session, click_area, sample) in clicks.try_iter() {
-            if session == Some(click_session) && area == Some(click_area) && !test_open {
+            if session == Some(click_session) && input_area == Some(click_area) && !test_open {
                 let _ = app.emit_to(
                     EventTarget::webview_window("panel"),
                     "peer-input",
@@ -615,15 +758,119 @@ fn watch_pointer(app: AppHandle, clicks: Receiver<QueuedClick>) {
     }
 }
 
+#[cfg(test)]
+mod selection_tests {
+    use super::*;
+
+    fn selected() -> Selection {
+        Selection {
+            area: Bounds::from_edges(80, 0, 1840, 1200),
+            input_area: Bounds::from_edges(200, 100, 600, 400),
+            peer_session: Some(7),
+            ..Selection::default()
+        }
+    }
+
+    #[test]
+    fn shares_from_the_source_window_not_the_scaled_display_or_frame_visibility() {
+        let mut state = selected();
+        let input = state.sharing_area().unwrap();
+        assert_eq!(input, Bounds::from_edges(200, 100, 600, 400).unwrap());
+        assert_eq!(
+            input.sample(Point { x: 300, y: 250 }),
+            Sample {
+                x: 0.25,
+                y: 0.5,
+                inside: true
+            }
+        );
+        let only_in_scaled_view = Point { x: 1000, y: 900 };
+        assert!(state.area.unwrap().sample(only_in_scaled_view).inside);
+        assert!(!input.sample(only_in_scaled_view).inside);
+        state.frame_hidden = true;
+        assert_eq!(state.sharing_area(), Some(input));
+    }
+
+    #[test]
+    fn suspends_desktop_sharing_without_a_session_or_area_and_while_picking_or_testing() {
+        let cases: [fn(&mut Selection); 5] = [
+            |state| state.peer_session = None,
+            |state| state.area = None,
+            |state| state.input_area = None,
+            |state| state.drag = state.area,
+            |state| state.test_pad.open = true,
+        ];
+        for change in cases {
+            let mut state = selected();
+            assert!(state.sharing_area().is_some());
+            change(&mut state);
+            assert!(state.sharing_area().is_none());
+        }
+    }
+
+    #[test]
+    fn updates_both_bounds_on_scaling_and_resumes_after_a_window_is_restored() {
+        let mut state = selected();
+        let fullscreen = platform::WindowArea {
+            input: Bounds::from_edges(-1200, -700, -400, -100).unwrap(),
+            display: Bounds::from_edges(-1920, -1080, 0, 0).unwrap(),
+        };
+        assert!(state.update_window_mapping(Some(fullscreen)));
+        assert_eq!(state.area, Some(fullscreen.display));
+        assert_eq!(state.sharing_area(), Some(fullscreen.input));
+        // Magpie may move the original window while leaving the displayed image unchanged.
+        let moved_source = platform::WindowArea {
+            input: Bounds::from_edges(100, 100, 900, 700).unwrap(),
+            ..fullscreen
+        };
+        assert!(state.update_window_mapping(Some(moved_source)));
+        assert_eq!(state.area, Some(fullscreen.display));
+        assert_eq!(state.sharing_area(), Some(moved_source.input));
+        assert!(state.update_window_mapping(None));
+        assert_eq!(state.area, None);
+        assert_eq!(state.sharing_area(), None);
+        assert!(!state.update_window_mapping(None));
+        assert!(state.update_window_mapping(Some(moved_source)));
+        assert_eq!(state.sharing_area(), Some(moved_source.input));
+    }
+
+    #[test]
+    fn preserves_a_preview_on_unchanged_bounds_and_clears_it_after_a_geometry_change() {
+        let mut state = selected();
+        state.test_pad.preview = Some(preview::Preview {
+            sample: Sample {
+                x: 0.5,
+                y: 0.25,
+                inside: true,
+            },
+            click_key: Some(1),
+        });
+        let unchanged = platform::WindowArea {
+            input: state.input_area.unwrap(),
+            display: state.area.unwrap(),
+        };
+        assert!(!state.update_window_mapping(Some(unchanged)));
+        assert!(state.test_pad.preview.is_some());
+        let resized = platform::WindowArea {
+            display: Bounds::from_edges(0, 0, 1600, 1200).unwrap(),
+            ..unchanged
+        };
+        assert!(state.update_window_mapping(Some(resized)));
+        assert!(state.test_pad.preview.is_none());
+    }
+}
+
 fn main() {
     let (click_sender, clicks) = mpsc::sync_channel::<QueuedClick>(32);
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updates::Service::default())
         .manage(Capture::default())
+        .manage(fullscreen::Service::default())
         .manage(click_sender)
         .setup(move |app| {
             updates::setup(app.handle());
+            fullscreen::setup(app.handle());
             let handle = app.handle().clone();
             thread::Builder::new()
                 .name("pointer-sampler".into())
@@ -632,6 +879,7 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if window.label() == "panel" && matches!(event, tauri::WindowEvent::Destroyed) {
+                window.state::<fullscreen::Service>().stop();
                 window.app_handle().exit(0);
             }
             if let ("picker", tauri::WindowEvent::CloseRequested { api, .. }) =
@@ -652,6 +900,9 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            fullscreen::fullscreen_start,
+            fullscreen::fullscreen_stop,
+            fullscreen::fullscreen_status,
             controls,
             select_display,
             select_window,
@@ -667,11 +918,18 @@ fn main() {
             restore_area,
             fit_panel,
             set_ghost_marks,
+            set_show_frame,
+            overlay_frame_visible,
             set_pick_count,
             prepare_pick_marker,
             updates::get_update_state,
             updates::check_for_updates
         ])
-        .run(tauri::generate_context!())
-        .expect("failed to run Ghostlink Tauri prototype");
+        .build(tauri::generate_context!())
+        .expect("failed to build Ghostlink Tauri prototype")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                app.state::<fullscreen::Service>().stop();
+            }
+        });
 }

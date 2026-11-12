@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup><MagpieDir>$(MSBuildThisFileDirectory)..\..\third_party\magpie\</MagpieDir></PropertyGroup>
+  <Import Project="$(MagpieDir)src\Common.Pre.props" />
+  <Import Project="$(MagpieDir)packages\Microsoft.Windows.CppWinRT.3.0.260818.1\build\native\Microsoft.Windows.CppWinRT.props" />
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{46161476-7D14-4958-B685-39A2A37F7C66}</ProjectGuid>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+    <OutDir>$(OutBaseDir)</OutDir><TargetName>ghostlink-fullscreen-host</TargetName>
+    <CppWinRTGenerateWindowsMetadata>false</CppWinRTGenerateWindowsMetadata>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration"><ConfigurationType>Application</ConfigurationType></PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <Import Project="$(MagpieDir)Directory.Build.props" />
+  <Import Project="$(MagpieDir)src\Common.Post.props" />
+  <Import Project="$(SolutionDir)obj\x64\Release\_ConanDeps\Magpie\conandeps.props" />
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <AdditionalIncludeDirectories>$(MagpieDir)src\Magpie.Core;$(MagpieDir)src\Magpie.Core\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <AdditionalDependencies>d3d11.lib;dxgi.lib;d3dcompiler.lib;windowsapp.lib;CoreMessaging.lib;winmm.lib;Gdi32.lib;Dwmapi.lib;Shell32.lib;Ole32.lib;Shlwapi.lib;Magnification.lib;bcp47mrm.lib;Shcore.lib;Uxtheme.lib;Dcomp.lib;Version.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <Manifest><AdditionalManifestFiles>$(MSBuildThisFileDirectory)host.manifest;%(AdditionalManifestFiles)</AdditionalManifestFiles></Manifest>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Remove="$(MagpieDir)src\Shared\*.cpp" />
+    <ResourceCompile Remove="$(MagpieDir)src\Shared\Version.rc" />
+    <ClCompile Include="host.cpp" />
+    <ProjectReference Include="$(MagpieDir)src\Magpie.Core\Magpie.Core.vcxproj"><Project>{0e5205ae-dfa9-4cb8-b662-e43cd6512e2a}</Project></ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Import Project="$(MagpieDir)packages\Microsoft.Windows.ImplementationLibrary.1.0.260126.7\build\native\Microsoft.Windows.ImplementationLibrary.targets" />
+  <Import Project="$(MagpieDir)packages\Microsoft.Windows.CppWinRT.3.0.260818.1\build\native\Microsoft.Windows.CppWinRT.targets" />
+</Project>

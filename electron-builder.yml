@@ -7,6 +7,7 @@ files:
   - out/preload/**
   - out/renderer/**
   - package.json
+  - LICENSE
   # Renderer dependencies are bundled by Vite; keep only main-process runtime modules.
   - '!node_modules/@electron-toolkit/preload/**'
   - '!node_modules/@noble/**'

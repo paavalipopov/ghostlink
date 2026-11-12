@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   applyCorner,
   isInside,
@@ -16,7 +16,7 @@ import {
   unitPoint
 } from '../src/shared/protocol'
 
-describe('native cursor coordinates', () => {
+describe('Electron reference: native helper cursor parser', () => {
   it('preserves negative coordinates on displays left of or above the primary display', () => {
     expect(parseCursorRow('-1920 300')).toEqual({ x: -1920, y: 300 })
     expect(parseCursorRow('200 -1200')).toEqual({ x: 200, y: -1200 })
@@ -81,7 +81,7 @@ describe('play area coordinates', () => {
   })
 })
 
-describe('window parsers', () => {
+describe('Electron reference: window helper parser', () => {
   it('reads a Win32 window row', () => {
     expect(parseWindowRow('99\t10\t30\t640\t480\tThimbleweed Park')).toEqual({
       id: '99',
@@ -99,13 +99,32 @@ describe('window parsers', () => {
 })
 
 describe('shared code', () => {
-  it('derives the same room id on both computers', async () => {
+  it('preserves the room-id digest and whitespace rules used by released clients', async () => {
     const first = await roomIdFromCode('amber harbor')
     const second = await roomIdFromCode('  amber harbor  ')
     const other = await roomIdFromCode('amber-harbor')
-    expect(first).toBe(second)
-    expect(first).not.toBe(other)
-    expect(first).toMatch(/^[0-9a-f]{64}$/)
+    expect(first).toBe('74824d10ab0987d4458b1ae15d38e4cd64e3c6a15190f5a5febafab59fef1db6')
+    expect(second).toBe(first)
+    expect(other).toBe('9b6e70b8d14a5c2d518a1f8827d4145fc6bca3f988b6d5b9935b813991ff210f')
+  })
+
+  it('uses Web Crypto bytes when generating a code, including the first and last alphabet values', () => {
+    for (const [byte, expected] of [
+      [0, '0000-0000-0000-0000-0000'],
+      [255, 'zzzz-zzzz-zzzz-zzzz-zzzz']
+    ] as const) {
+      const random = vi.fn((bytes: Uint8Array) => {
+        bytes.fill(byte)
+        return bytes
+      })
+      vi.stubGlobal('crypto', { getRandomValues: random })
+      try {
+        expect(makeCode()).toBe(expected)
+        expect(random).toHaveBeenCalledOnce()
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    }
   })
 
   it('makes a code long enough to paste, and rejects a short one', () => {

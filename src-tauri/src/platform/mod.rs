@@ -1,12 +1,25 @@
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
-pub use windows::{cursor, set_click_handler, set_overlay_visible, window_at};
+pub use windows::{
+    cursor, keep_overlay_above, set_click_handler, set_overlay_visible, window_area, window_at,
+    WindowTarget,
+};
 
 #[cfg(not(windows))]
 mod portable;
 #[cfg(not(windows))]
-pub use portable::{cursor, set_click_handler, set_overlay_visible, window_at};
+pub use portable::{
+    cursor, keep_overlay_above, set_click_handler, set_overlay_visible, window_area, window_at,
+    WindowTarget,
+};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WindowArea {
+    // Magpie leaves the real mouse in the source window while displaying a scaled copy elsewhere.
+    pub input: crate::geometry::Bounds,
+    pub display: crate::geometry::Bounds,
+}
 
 pub type ClickHandler = Box<dyn Fn(crate::geometry::Point)>;
 

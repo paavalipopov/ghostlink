@@ -191,6 +191,10 @@ function App({
   const [name, setName] = useState(() => stored('ghostlink.name', ''))
   const [code, setCode] = useState(() => stored('ghostlink.code', ''))
   const [monitoring, setMonitoring] = useState(false)
+  const [showFrame, setShowFrame] = useState(
+    () => stored('ghostlink.showFrame', 'true') !== 'false'
+  )
+  const showFrameRef = useRef(showFrame)
   const [ghostMarks, setGhostMarks] = useState(false)
   useEffect(() => {
     let gone = false
@@ -268,7 +272,7 @@ function App({
       } catch {
         // Fall back to the default area if the saved area is invalid.
       }
-      api.setShowFrame(true)
+      api.setShowFrame(showFrameRef.current)
     })()
     return () => {
       offArea()
@@ -520,7 +524,33 @@ function App({
       <div data-testid="section-rule" className="h-px bg-[#8a8378]" />
 
       <section className="space-y-2.5">
-        <h2 className="text-center text-sm font-medium">Shared display</h2>
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+          <h2 className="col-start-2 text-sm font-medium">Shared display</h2>
+          <Button
+            type="button"
+            variant="outline"
+            className="col-start-3 grid h-6 w-[70px] grid-cols-[1fr_18px] gap-1 justify-self-end rounded-full px-2 py-0 text-[11px]"
+            data-testid="toggle-frame"
+            aria-label="Show shared area frame"
+            aria-pressed={showFrame}
+            title={
+              showFrame ? 'Hide the frame; keep sharing pointers' : 'Show the shared area frame'
+            }
+            disabled={!canSelectArea}
+            onClick={() => {
+              const next = !showFrame
+              showFrameRef.current = next
+              setShowFrame(next)
+              remember('ghostlink.showFrame', String(next))
+              api.setShowFrame(next)
+            }}
+          >
+            <span data-testid="frame-label">Frame</span>
+            <span className="text-left" data-testid="frame-status">
+              {showFrame ? 'on' : 'off'}
+            </span>
+          </Button>
+        </div>
         {areaControls}
         <div className="grid grid-cols-2 gap-1.5">
           <Button

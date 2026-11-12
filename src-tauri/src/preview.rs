@@ -59,6 +59,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn rejects_nonfinite_and_outside_input_without_replacing_the_last_valid_preview() {
+        let mut pad = TestPad {
+            open: true,
+            ..TestPad::default()
+        };
+        pad.update(Some(PadInput {
+            x: 0.0,
+            y: 1.0,
+            click: false,
+        }))
+        .unwrap();
+        let valid = pad.preview;
+        for (x, y) in [
+            (f64::NAN, 0.5),
+            (0.5, f64::INFINITY),
+            (-0.01, 0.5),
+            (0.5, 1.01),
+        ] {
+            assert!(pad.update(Some(PadInput { x, y, click: true })).is_err());
+            assert!(pad.preview == valid);
+        }
+    }
+
+    #[test]
     fn each_click_restarts_the_blink_and_closing_clears_it() {
         let mut pad = TestPad {
             open: true,
