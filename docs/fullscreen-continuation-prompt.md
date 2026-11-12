@@ -1,44 +1,50 @@
-Latest update: read the resumed verification section of docs/fullscreen-development-continuation.md first. The actual foreground-panel button path, visible-guest click-through, exit chord and capture-active crash/owner-exit checks have now passed on the animated Win32 fixture. Fix the newly discovered false timeout status after clean hotkey exit, then retest Explorer/Telegram/the game and refresh artifacts. The older instructions below describe the prior checkpoint.
-
 Continue Ghostlink's bundled Magpie fullscreen prototype on Windows.
 
-Use C:\Users\paava\.codex\worktrees\b4c0\ghostlink, branch
-codex/tauri-windows-prototype. Fetch the latest branch and inspect status before
-editing; preserve any subsequent local changes. First read:
+Workspace: C:\Users\paava\.codex\worktrees\b4c0\ghostlink
+Branch: codex/tauri-windows-prototype
+Remote: https://github.com/paavalipopov/ghostlink
 
-- docs/fullscreen-development-continuation.md (current state and exact next steps)
-- docs/bundled-fullscreen-prototype.md
-- docs/fullscreen-helper-handoff.md
-- docs/tauri-prototype.md
-- docs/security-review-0.8.1.md
+Inspect current Git status and preserve any subsequent local changes. First read
+docs/fullscreen-development-continuation.md, especially its latest user-requested
+UI/shortcut tasks and resumed desktop verification. Then read
+docs/bundled-fullscreen-prototype.md, docs/fullscreen-helper-handoff.md,
+docs/tauri-prototype.md and docs/security-review-0.8.1.md.
 
-The bundled helper and earlier Tauri/UI changes are in the checkpoint. Do not
-restart from main or reimplement the prototype.
+Implement the newly requested controls:
 
-The user's blocker: Explorer, Telegram and game windows all returned code -3.
-This comes from our foreground activation check before Magpie capture. A candidate
-fix moves activation to the Ghostlink parent after helper readiness and waits
-up to one second for Windows to complete it. It builds, but the actual panel-
-button regression test is NOT finished. Previous successful tests had already
-focused the source and did not cover the failure.
+- Rename Shared display to Shared area.
+- One Fullscreen on/off toggle immediately left of that heading, styled like the
+  existing Frame on/off button. Keep Frame on the right. Remove Dev fullscreen,
+  Stop and the idle indicator.
+- Alt+Shift+A must globally toggle BOTH entering and exiting, including when the
+  helper is not running. Synchronize UI state with actual helper/session state,
+  handle conflicts and lifecycle failures, and retain safe cleanup.
+- Rename the existing Full Screen display-selection action to an unambiguous
+  selection label such as Entire display, so it is not a second fullscreen toggle.
 
-First test selecting a source, returning focus to Ghostlink's panel and clicking
-the actual Dev fullscreen button. Confirm this works without pre-focusing the
-source. If it fails, diagnose foreground permission/activation timing; do not
-disable Windows focus protections or inject fake input as a workaround.
+Current capture capability is WINDOW ONLY via Pick window. Dragged regions and
+whole-display selections currently control pointer sharing, not fullscreen capture.
+Full-monitor selection includes the taskbar area. Do not claim arbitrary green-frame
+capture or automatic dock exclusion is implemented. Region/display capture is
+additional scope to clarify before implementing.
 
-Then verify Ctrl+Alt+F11, visible guest click-through, edge mapping, Alt-Tab,
-minimize/restore and capture-active helper crash/parent-exit cleanup. Preserve
-source/display mapping and peer sessions. The user authorized desktop input
-tests; obtain any per-app tool approval while windowed, before entering fullscreen.
+The foreground -3 candidate fix passed the actual panel-button-to-source path on
+a real animated Win32 fixture. Visible-guest click-through, Ctrl+Alt+F11 exit and
+capture-active crash/owner-exit checks passed. A remaining watchdog race falsely
+reports timeout after clean hotkey exit; fix it while synchronizing the new toggle.
+Explorer, Telegram, game-specific behavior, edge alignment, Alt-Tab and two-PC
+trials still need coverage. Do not pre-focus the source to validate panel activation.
 
-Own builds and meaningful local tests. Refresh the unpublished installer,
-portable files, checksums and GPL corresponding source after verified changes.
-Old dist/fullscreen-prototype artifacts predate the candidate focus fix.
+Stack: Tauri 2/Rust/React/TypeScript/WebView2. Pinned Magpie core is under
+third_party/magpie, C++ wrapper under native/fullscreen-host. Electron is retired.
+Own builds and meaningful local tests. Refresh the unpublished installer, portable
+files, checksums and GPL corresponding source after verified changes; current
+dist artifacts are stale. Preserve source/display mapping, guest overlays,
+click-through, frame-toggle stability and peer sessions. Keep inexpensive Linux
+compatibility. Desktop tests are authorized; obtain per-app tool approval while
+windowed before entering fullscreen. Mixed physical display scaling is skipped.
 
-Stack: Tauri 2/Rust/React/TypeScript/WebView2. Magpie source is pinned under
-third_party/magpie, wrapper under native/fullscreen-host. Electron is retired.
-Keep inexpensive Linux compatibility. Mixed physical display scaling is skipped.
-Security remediation and fullscreen UI redesign remain separate. No version bump,
-signing-key changes, release publication or merge to main. Stop at a working local
-prototype and report verified results and remaining two-PC/game checks.
+Security remediation stays separate. No version bump, signing-key changes,
+release publication or merge to main. The specified UI/shortcut task is now
+authorized despite the earlier general UI-redesign deferral. Stop at a working
+local prototype and report verified results and remaining manual checks.

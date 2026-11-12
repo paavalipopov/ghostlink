@@ -1,5 +1,55 @@
 # Fullscreen development continuation
 
+## Next UI and shortcut work requested by the user — November 12, 2026
+
+These are implementation tasks for the next agent; they have not been implemented.
+This request supersedes the earlier UI-redesign deferral for the following controls:
+
+1. Rename the heading **Shared display** to **Shared area**.
+2. Put one **Fullscreen** on/off toggle immediately LEFT of that heading.
+   Match the existing Frame on/off button's styling and stable dimensions.
+   Keep the Frame toggle on the right. Remove the separate Dev fullscreen and
+   Stop buttons, and remove the idle/status indicator from this row.
+3. Use the same toggle for entering and exiting fullscreen. Derive its state
+   from the native helper/session, including hotkey exit, startup failure,
+   helper crash and target exit. A clean exit must clear the toggle without
+   the currently known false-timeout error. Keep useful errors accessible
+   without adding a persistent idle indicator.
+4. Register **Alt+Shift+A** as an application-wide toggle for BOTH entering and
+   exiting fullscreen. It must work while the helper is stopped; the current
+   helper-only exit registration cannot provide that. Route the button and
+   shortcut through the same validated transition logic, prevent overlapping
+   start/stop requests, handle shortcut conflicts, and update old Ctrl+Alt+F11
+   text/registration and tests. Preserve a reliable escape/cleanup path.
+5. Avoid two controls called Fullscreen: the existing **Full Screen** button
+   currently selects an entire monitor. Keep that selection capability under
+   an unambiguous name such as **Entire display**, distinct from the new toggle.
+6. Verify the requested layout remains stable, the actual panel-button and
+   global-hotkey activation paths both work, and peer sessions, frame visibility,
+   input/display mapping and click-through remain intact.
+
+### Selection capability clarification
+
+The current bundled helper only scales a native window selected with **Pick
+window**. fullscreen_start requires Selection.tracked_window; manually dragged
+rectangles and whole-display selections do not have one and cannot start it.
+The green frame is a pointer-sharing/mapping indicator, not a universal region
+capture source. With a selected window, Magpie supplies the actual captured
+source/client and displayed-image bounds; these need not equal the initial
+outer-window frame, and the title bar is normally excluded.
+
+The existing whole-display selection uses full monitor bounds, not the work
+area. It does not automatically subtract the Windows taskbar or another dock.
+A manually drawn rectangle can avoid a dock for pointer sharing, but it is not
+currently a fullscreen capture source.
+
+The user asked whether arbitrary green-frame areas already scale. They do NOT.
+Treat arbitrary rectangle/display capture, cropping out taskbars/docks, input
+mapping and capture-feedback avoidance as additional scope to clarify/design;
+do not claim that functionality exists or silently implement it as part of this
+small UI/shortcut task. Until support is added, explain/disable entering fullscreen
+for unsupported selections while still permitting exit from an active session.
+
 ## Resumed desktop verification — November 12, 2026
 
 Tested the rebuilt candidate through real Windows mouse/keyboard input:
