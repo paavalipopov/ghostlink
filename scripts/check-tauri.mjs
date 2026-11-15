@@ -156,6 +156,13 @@ try {
   panel = await attach('/')
   const overlay = await attach('/overlay.html')
   const pad = await attach('/test-pad.html')
+  assert.equal(await overlay.invoke('fullscreen_exit_hint'), null)
+  await assert.rejects(panel.invoke('fullscreen_exit_hint'), /Only the overlay/)
+  assert.equal(
+    await overlay.eval(`!!document.querySelector('[data-testid="fullscreen-exit-hint"]')`),
+    false,
+    'The exit hint stays hidden outside fullscreen'
+  )
   await until('panel controls', () => panel.eval(`!!document.querySelector('${toggle}')`))
   await until('compact panel width', () => panel.eval('Math.abs(innerWidth - 266) <= 1'))
   if (process.env.GHOSTLINK_PANEL_SCREENSHOT) {

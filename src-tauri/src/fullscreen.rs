@@ -58,6 +58,16 @@ pub const TOGGLE_BUSY: &str = "A fullscreen change is already in progress.";
 
 pub const TOGGLE_SHORTCUT: &str = "Alt+Shift+A";
 
+pub fn exit_hint_shortcut(status: &Status) -> Option<&'static str> {
+    // A scaling warning can include a failed app-wide hotkey registration.
+    // The helper's own exit shortcut is guaranteed before capture starts.
+    (status.state == "scaling").then_some(if status.error.is_none() {
+        TOGGLE_SHORTCUT
+    } else {
+        status.hotkey
+    })
+}
+
 pub fn session_is_active(state: &str) -> bool {
     matches!(state, "starting" | "scaling" | "waiting" | "stopping")
 }
@@ -143,9 +153,45 @@ pub fn fullscreen_status(window: WebviewWindow) -> Result<Status, String> {
     Ok(window.state::<Service>().status())
 }
 
+#[tauri::command]
+pub fn fullscreen_exit_hint(window: WebviewWindow) -> Result<Option<&'static str>, String> {
+    if window.label() != "overlay" {
+        return Err("Only the overlay can read the fullscreen exit hint.".into());
+    }
+    Ok(exit_hint_shortcut(&window.state::<Service>().status()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::lost_poll_error;
+
+    #[test]
+    fn exit_hint_only_shows_during_actual_scaling() {
+        let mut status = super::Status::default();
+        for state in [
+            "idle",
+            "starting",
+            "waiting",
+            "stopping",
+            "failed",
+            "unavailable",
+        ] {
+            status.state = state.into();
+            assert_eq!(super::exit_hint_shortcut(&status), None);
+        }
+        status.state = "scaling".into();
+        assert_eq!(super::exit_hint_shortcut(&status), Some("Alt+Shift+A"));
+    }
+
+    #[test]
+    fn exit_hint_uses_the_helper_exit_when_the_toggle_shortcut_is_unavailable() {
+        let status = super::Status {
+            state: "scaling".into(),
+            error: Some(super::shortcut_conflict(1409)),
+            ..super::Status::default()
+        };
+        assert_eq!(super::exit_hint_shortcut(&status), Some("Ctrl+Alt+F11"));
+    }
 
     #[test]
     fn clean_exit_during_status_poll_is_idle() {

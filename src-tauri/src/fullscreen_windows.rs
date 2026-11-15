@@ -325,6 +325,11 @@ impl Service {
             "fullscreen-status",
             status,
         );
+        let _ = app.emit_to(
+            EventTarget::webview_window("overlay"),
+            "fullscreen-exit-hint",
+            super::exit_hint_shortcut(status),
+        );
     }
 
     pub fn toggle(&self, app: &AppHandle) -> Result<Status, String> {

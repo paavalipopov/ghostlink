@@ -1,5 +1,42 @@
 # Fullscreen development continuation
 
+## Fullscreen exit reminder — November 15, 2026
+
+The existing click-through overlay now shows a translucent reminder in the
+upper-right of the fullscreen image, including with Frame off:
+
+```text
+To exit full screen
+press Alt+Shift+A
+```
+
+For the first four seconds it pulses six times (about 1.5 Hz), with short fades
+and held bright/dim phases. Bright text is fully opaque white; dim phases use
+40% opacity. It then remains at the normal 65% opacity. Reduced-motion settings
+disable the introduction animation and leave the steady hint. Repeated status
+updates do not restart it; a new fullscreen entry mounts a new hint.
+
+Native status updates show the hint only while the owned helper reports scaling.
+It hides on pause, stop, failure and exit; its initial state is restored after an
+overlay reload. If the app-wide Alt+Shift+A registration is unavailable, it names
+the helper's guaranteed Ctrl+Alt+F11 exit instead. The bootstrap command is
+read-only and restricted to the overlay. Existing source/display bounds, guest
+rendering, native click-through and focus behavior are unchanged.
+
+Validation: 30 TypeScript and 21 Rust tests passed, with the Rust subprocess
+fixture exercised separately by its parent test. Prototype typechecking, scoped
+ESLint, the Windows/NSIS build and standard WebView2 desktop checks passed. A real
+animated-window capture confirmed the native reminder appeared with Frame off
+and a guest present, and disappeared after timed stop. The final two-line layout,
+666.667ms x 6 timing, 100%/40%/65% text colors and reduced-motion behavior were
+verified in an isolated WebView2 CSS check without further desktop input. The
+final animation has not had another live-capture/manual-input trial.
+
+The refreshed local installer is 3,806,399 bytes (3.63 MiB). Portable files,
+matching sources and checksums are refreshed in the existing local output folder.
+No version bump, signing change or public release is included. The release
+blockers below remain open.
+
 ## Matching shared-area pills — November 14, 2026
 
 The two pills beside Shared area now both measure 80px wide, with centered

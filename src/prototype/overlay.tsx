@@ -24,6 +24,7 @@ function Overlay(): JSX.Element {
   const [ghostMarks, setGhostMarks] = useState(false)
   const [pickCount, setPickCount] = useState<number | null>(null)
   const [showFrame, setShowFrame] = useState(false)
+  const [exitShortcut, setExitShortcut] = useState<string | null>(null)
   const shape = ghostMarks ? 'ghost' : 'arrow'
 
   useEffect(() => {
@@ -40,6 +41,17 @@ function Overlay(): JSX.Element {
       setPickCount(payload)
     )
     let disposed = false
+    let hintChanged = false
+    const hintSubscription = listen<string | null>('fullscreen-exit-hint', ({ payload }) => {
+      hintChanged = true
+      if (!disposed) setExitShortcut(payload)
+    })
+    void hintSubscription
+      .then(() => invoke<string | null>('fullscreen_exit_hint'))
+      .then((shortcut) => {
+        if (!disposed && !hintChanged) setExitShortcut(shortcut)
+      })
+      .catch(console.error)
     let frameChanged = false
     const frameSubscription = listen<boolean>('show-frame', ({ payload }) => {
       frameChanged = true
@@ -58,12 +70,21 @@ function Overlay(): JSX.Element {
       void marksSubscription.then((unlisten) => unlisten())
       void pickSubscription.then((unlisten) => unlisten())
       void frameSubscription.then((unlisten) => unlisten())
+      void hintSubscription.then((unlisten) => unlisten())
     }
   }, [])
 
   return (
     <div className="overlay">
       {showFrame && <div className="frame" />}
+      {exitShortcut && (
+        <div className="fullscreen-exit-hint" data-testid="fullscreen-exit-hint" role="note">
+          <div>To exit full screen</div>
+          <div>
+            press <span>{exitShortcut}</span>
+          </div>
+        </div>
+      )}
       {pickCount !== null && (
         <div className="mark-banner" data-testid="pick-count">
           <div className="mark-count">{pickCount}</div>

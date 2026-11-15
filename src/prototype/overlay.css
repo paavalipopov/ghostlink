@@ -16,6 +16,43 @@ body,
   inset: 0;
 }
 
+.fullscreen-exit-hint {
+  position: absolute;
+  top: 20px;
+  right: 24px;
+  max-width: calc(100% - 48px);
+  color: rgb(255 255 255 / 65%);
+  font:
+    400 14px / 1.45 'Segoe UI',
+    sans-serif;
+  text-align: right;
+  text-shadow:
+    0 1px 2px rgb(0 0 0 / 90%),
+    0 0 4px rgb(0 0 0 / 60%);
+  pointer-events: none;
+  user-select: none;
+  /* Six pulses in four seconds, then return to the subdued base color. */
+  animation: fullscreen-exit-hint-intro calc(2s / 3) linear 6;
+}
+
+.fullscreen-exit-hint span {
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+@keyframes fullscreen-exit-hint-intro {
+  0%,
+  35%,
+  95%,
+  100% {
+    color: rgb(255 255 255);
+  }
+  45%,
+  85% {
+    color: rgb(255 255 255 / 40%);
+  }
+}
+
 .point {
   position: absolute;
   top: 0;
@@ -33,6 +70,9 @@ body,
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .fullscreen-exit-hint {
+    animation: none;
+  }
   .point {
     transition: none;
   }
