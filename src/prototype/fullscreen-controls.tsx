@@ -96,7 +96,7 @@ export function FullscreenToggle({
     <Button
       type="button"
       variant="outline"
-      className={`col-start-1 grid h-6 w-[104px] grid-cols-[1fr_18px] gap-1 justify-self-start rounded-full px-2 py-0 text-[11px] ${
+      className={`col-start-1 grid h-6 w-[84px] grid-cols-[1fr_16px] gap-0.5 justify-self-start rounded-full px-1.5 py-0 text-[11px] ${
         model.enabled || busy ? '' : 'opacity-50'
       }`}
       data-testid="toggle-fullscreen"

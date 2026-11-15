@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdir, mkdtemp } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { resolve } from 'node:path'
 
@@ -87,29 +87,41 @@ async function attach(path) {
   }
   const connection = {
     close: () => ws.close(),
-    async eval(expression) {
+    async request(method, params) {
       const result = await new Promise((done, fail) => {
         const id = ++sequence
         const timer = setTimeout(() => {
           pending.delete(id)
-          fail(new Error('WebView evaluation timed out'))
+          fail(new Error(`WebView ${method} timed out`))
         }, 5000)
         pending.set(id, (response) => {
           pending.delete(id)
           clearTimeout(timer)
           if (response.error || response.result?.exceptionDetails)
             fail(new Error(JSON.stringify(response)))
-          else done(response.result.result.value)
+          else done(response.result)
         })
         ws.send(
           JSON.stringify({
             id,
-            method: 'Runtime.evaluate',
-            params: { expression, returnByValue: true, awaitPromise: true }
+            method,
+            params
           })
         )
       })
       return result
+    },
+    async eval(expression) {
+      const result = await this.request('Runtime.evaluate', {
+        expression,
+        returnByValue: true,
+        awaitPromise: true
+      })
+      return result.result.value
+    },
+    async screenshot(path) {
+      const result = await this.request('Page.captureScreenshot', { format: 'png' })
+      await writeFile(path, Buffer.from(result.data, 'base64'))
     },
     invoke(command, args = {}) {
       return this.eval(
@@ -145,9 +157,22 @@ try {
   const overlay = await attach('/overlay.html')
   const pad = await attach('/test-pad.html')
   await until('panel controls', () => panel.eval(`!!document.querySelector('${toggle}')`))
+  await until('compact panel width', () => panel.eval('Math.abs(innerWidth - 266) <= 1'))
+  if (process.env.GHOSTLINK_PANEL_SCREENSHOT) {
+    await panel.screenshot(resolve(process.env.GHOSTLINK_PANEL_SCREENSHOT))
+  }
   const initial = await panel.eval(metrics)
   assert.equal(initial.on, 'true')
   assert.equal(initial.overflow, false)
+  assert.equal(
+    await panel.eval(`Array.from(document.querySelectorAll('button, input, select')).every(control => {
+      const rect = control.getBoundingClientRect()
+      return rect.x >= 0 && rect.right <= innerWidth + 1 && control.scrollWidth <= control.clientWidth + 1
+        && Array.from(control.querySelectorAll('span')).every(label => label.scrollWidth <= label.clientWidth + 1)
+    })`),
+    true,
+    'Controls and their labels must fit inside the narrower panel'
+  )
   assert.ok(
     Math.abs(initial.heading.center - initial.row.center) < 0.75,
     'Shared area must stay centered in its row'

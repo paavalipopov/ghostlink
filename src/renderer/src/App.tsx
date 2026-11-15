@@ -340,7 +340,7 @@ function App({
     return () => clearInterval(timer)
   }, [listenUntil, monitoring])
 
-  const layoutWidth = fullscreenToggle ? 332 : 300
+  const layoutWidth = fullscreenToggle ? 266 : 240
   const [layoutReady, setLayoutReady] = useState(false)
   const [zoom, setZoom] = useState(1)
   useLayoutEffect(() => {
@@ -526,13 +526,13 @@ function App({
       <div data-testid="section-rule" className="h-px bg-[#8a8378]" />
 
       <section className="space-y-2.5">
-        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-1">
           {fullscreenToggle}
-          <h2 className="col-start-2 text-sm font-medium">Shared area</h2>
+          <h2 className="col-start-2 whitespace-nowrap text-xs font-medium">Shared area</h2>
           <Button
             type="button"
             variant="outline"
-            className="col-start-3 grid h-6 w-[70px] grid-cols-[1fr_18px] gap-1 justify-self-end rounded-full px-2 py-0 text-[11px]"
+            className="col-start-3 grid h-6 w-16 grid-cols-[1fr_16px] gap-0.5 justify-self-end rounded-full px-1.5 py-0 text-[11px]"
             data-testid="toggle-frame"
             aria-label="Show shared area frame"
             aria-pressed={showFrame}
@@ -559,7 +559,7 @@ function App({
           <Button
             type="button"
             variant="secondary"
-            className="px-2"
+            className="min-w-0 gap-1.5 px-1.5"
             title="Point at a window and wait through the countdown. The frame matches that window."
             disabled={marking || !canSelectArea || !canPickWindow}
             data-testid="mark-window"
@@ -571,7 +571,7 @@ function App({
           <Button
             type="button"
             variant="secondary"
-            className="px-2"
+            className="min-w-0 gap-1.5 px-1.5"
             data-testid="drag-frame"
             title="Click and drag across to select a custom rectangular frame."
             disabled={marking || !canSelectArea}
@@ -617,7 +617,7 @@ function App({
           <Button
             type="button"
             variant="secondary"
-            className="min-w-0 flex-1 px-2"
+            className="min-w-0 flex-1 gap-1.5 px-1.5"
             title="Frame this whole display"
             disabled={marking || !canSelectArea}
             data-testid="full-screen"
@@ -645,7 +645,7 @@ function App({
           </Button>
         </div>
         {areaNote && (
-          <p className="text-xs text-muted-foreground" role="status">
+          <p className="break-words text-xs text-muted-foreground" role="status">
             {areaNote}
           </p>
         )}

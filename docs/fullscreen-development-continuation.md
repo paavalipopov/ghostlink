@@ -1,5 +1,49 @@
 # Fullscreen development continuation
 
+## Compact panel and release readiness — November 14, 2026
+
+The Windows panel now targets **266 logical pixels**, down from 332 (80.1%).
+The shared panel without the Windows fullscreen toggle uses 240 instead of 300.
+Narrower toggle widths, button padding and gaps keep all labels visible; the
+Shared area heading remains centered. Ordinary button/input text sizes and
+button heights are retained. The section heading is 12px. Windows startup width
+and the content-driven fitted width agree, avoiding an initially wide window.
+
+Validation: all 30 TypeScript tests, prototype typechecking and scoped ESLint
+passed. The Windows release/NSIS build and real WebView2 checks passed, including
+panel width (with one pixel of native DPI rounding tolerance), control/label
+overflow, centered heading, stable frame states, physical overlay placement,
+guest rendering, session filtering and saved preferences. Before/after captures
+at the local 125% scale were visually reviewed. The development test script can
+save a panel image with `GHOSTLINK_PANEL_SCREENSHOT=<output.png>`.
+
+The refreshed unpublished installer at the local path below is **3,800,367 bytes**
+(3.62 MiB). Portable files, matching sources and checksums are refreshed alongside
+it. The matching source package reuses the previous verified dependency sources
+after checking unchanged dependency lockfiles; all application sources are fresh.
+No dependency, helper implementation, version or signing key changed.
+
+**Release decision: not ready for a public GitHub release.** The conditional
+release request was evaluated against the current installed Trystero core
+0.26.0 and application integration, not just the older security report. Local
+in-memory reproductions still confirmed:
+
+- After leaving an old room, a retained peer entered a new room and delivered a
+  movement message without its new secret. The opposite-role control rejected
+  the same attempt.
+- Twenty unauthenticated announcements caused twenty offer-allocation requests
+  and peer-state entries with RTC allocation stubbed.
+- A 64 MiB movement transfer was admitted before application validation; the
+  transfer was canceled before allocation. Five hundred small valid movements
+  reached the handler without a receive-rate cap.
+- Short secrets remain susceptible to offline guessing from the public topic.
+
+No real peers or relays were contacted. Authentication and resource-limit
+remediation remains the separate task in [security-review-0.8.1.md](security-review-0.8.1.md).
+Do that work and its regressions before a public release. The previously listed
+game/two-PC/real-hotkey trials also remain open. This UI checkpoint is pushed to
+the development branch; no version tag, draft or public release is created.
+
 ## Review fixes — November 14, 2026
 
 Reviewed remote `codex/tauri-windows-prototype` at `f76bcf2`. That checkpoint
