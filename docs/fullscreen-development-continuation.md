@@ -1,5 +1,19 @@
 # Fullscreen development continuation
 
+## Matching shared-area pills — November 14, 2026
+
+The two pills beside Shared area now both measure 80px wide, with centered
+content and equal spacing from the centered title. Frame retains on/off text in
+a fixed status slot so its content stays still. Fullscreen displays only its
+name; its existing accessible pressed state also selects a highlighted appearance.
+The 266px panel width is retained. A local WebView2 geometry check measured pill
+centers at 52px and 214px around the title center at 132.994px.
+
+All 30 TypeScript tests, prototype typechecking and scoped ESLint passed; the
+Windows installer was rebuilt. The local installer is now 3,801,449 bytes
+(3.63 MiB), with portable files, matching sources and checksums refreshed alongside
+it. Release blockers below remain unchanged; this is a development-branch update.
+
 ## Compact panel and release readiness — November 14, 2026
 
 The Windows panel now targets **266 logical pixels**, down from 332 (80.1%).

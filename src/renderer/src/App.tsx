@@ -532,7 +532,7 @@ function App({
           <Button
             type="button"
             variant="outline"
-            className="col-start-3 grid h-6 w-16 grid-cols-[1fr_16px] gap-0.5 justify-self-end rounded-full px-1.5 py-0 text-[11px]"
+            className="col-start-3 h-6 w-20 gap-1 justify-self-end rounded-full px-1.5 py-0 text-[11px]"
             data-testid="toggle-frame"
             aria-label="Show shared area frame"
             aria-pressed={showFrame}
@@ -549,7 +549,7 @@ function App({
             }}
           >
             <span data-testid="frame-label">Frame</span>
-            <span className="text-left" data-testid="frame-status">
+            <span className="w-4 text-left" data-testid="frame-status">
               {showFrame ? 'on' : 'off'}
             </span>
           </Button>
