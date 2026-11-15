@@ -10,7 +10,7 @@ function MarkFace({ name, color }: { name: string; color: string }): JSX.Element
         height="22"
         viewBox="0 0 24 24"
         aria-hidden="true"
-        style={{ display: 'block', filter: 'drop-shadow(0 1px 1px rgba(0,0,0,.65))' }}
+        style={{ display: 'block' }}
       >
         <path
           d="M5 2.5 L5 19.2 L9.6 14.6 L13.2 21.2 L16.1 19.8 L12.4 13.2 L19 13.2 Z"
@@ -48,7 +48,7 @@ function GhostFace({ name, color }: { name: string; color: string }): JSX.Elemen
         height="36"
         viewBox="0 0 64 64"
         aria-hidden="true"
-        style={{ display: 'block', filter: 'drop-shadow(0 1px 1px rgba(0,0,0,.65))' }}
+        style={{ display: 'block' }}
       >
         <path
           d="M32 6c-12.5 0-21 10.2-21 24.5V62l7.2-6.2L25 62l7-6.2L39 62l6.8-6.2L53 62V30.5C53 16.2 44.5 6 32 6z"
@@ -99,7 +99,11 @@ export function CursorMark({
   shape?: 'arrow' | 'ghost'
 }): JSX.Element {
   const face = (paint: string): JSX.Element =>
-    shape === 'ghost' ? <GhostFace name={name} color={paint} /> : <MarkFace name={name} color={paint} />
+    shape === 'ghost' ? (
+      <GhostFace name={name} color={paint} />
+    ) : (
+      <MarkFace name={name} color={paint} />
+    )
   return (
     <div data-mark={shape} style={{ position: 'relative', pointerEvents: 'none' }}>
       {face(color)}

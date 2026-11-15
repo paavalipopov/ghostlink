@@ -47,6 +47,9 @@ Real Magpie fullscreen rendering, click-through to a game, two-PC networking, ca
 
 ## Build
 
+For the current Linux/X11 coverage, WebRTC limitation and intended VM build
+commands, see [Linux VM testing status](docs/linux-vm-testing.md).
+
 On Windows, from this folder:
 
 ```

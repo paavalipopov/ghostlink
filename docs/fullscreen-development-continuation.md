@@ -1,5 +1,20 @@
 # Fullscreen development continuation
 
+## Sharper pointers and Linux VM assessment — November 15, 2026
+
+Removed the blurred SVG drop-shadow filter from both arrow and ghost pointer
+faces. The dark outlines, geometry, labels, movement mapping and click-blink
+effect remain. WebView2 checks confirmed normal and click-blink SVG copies have
+no filter in both styles, and the existing frame/overlay/session checks passed.
+The refreshed local Windows installer is 3,805,719 bytes (3.63 MiB), with matching
+portable files, source archive and checksums.
+
+[Linux VM testing status](linux-vm-testing.md) records the partial X11 fallback,
+intended native-host build commands, Windows-only features and test gates. No
+Linux build is claimed. A key additional blocker for peer tests is browser RTC:
+upstream WebKitGTK 2.54 disables WebRTC during its backend transition. Check the
+actual VM runtime/data-channel support before promising peer interoperability.
+
 ## Fullscreen exit reminder — November 15, 2026
 
 The existing click-through overlay now shows a translucent reminder in the
