@@ -1,3 +1,12 @@
+# 0.9.0
+
+- Bundled Magpie-based Windows fullscreen with Alt+Shift+A, safe exit and lifecycle cleanup.
+- Translucent fullscreen exit reminder with brief transparency pulses and reduced-motion support.
+- Compact shared-area panel with matching toggles and clearer display selection.
+- Sharper arrow/ghost pointers, restored-window eligibility and fullscreen transition fixes.
+- Matching GPL source package accompanies the installer.
+- Existing authentication and resource-budget findings remain unresolved; see the security review.
+
 # 0.8.0
 
 - Windows app rebuilt with Tauri, Rust, and WebView2.

@@ -30,7 +30,8 @@ npm.cmd run prototype:build -- --config $overridePath -- --locked
 if ($LASTEXITCODE -ne 0) { throw 'Tauri release build failed.' }
 
 $name = "Ghostlink_${version}_x64-setup.exe"
-$bundle = 'src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis'
+$targetDir = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { 'src-tauri/target' }
+$bundle = Join-Path $targetDir 'x86_64-pc-windows-msvc/release/bundle/nsis'
 $installer = Join-Path $bundle $name
 if ($env:TAURI_WINDOWS_SIGN_COMMAND) {
   foreach ($file in @($installer, "$bundle/../../ghostlink-tauri-prototype.exe")) {
@@ -50,3 +51,17 @@ Copy-Item -LiteralPath $installer, "$installer.sig" -Destination $releaseDir.Ful
     }
   }
 } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $releaseDir.FullName 'latest.json') -Encoding utf8
+
+$source = Join-Path $releaseDir.FullName "Ghostlink_${version}_source.zip"
+if ($env:CI -eq 'true') {
+  git diff --exit-code
+  if ($LASTEXITCODE -ne 0) { throw 'Build modified tracked source files.' }
+}
+python scripts/package-fullscreen-source.py --output $source
+if ($LASTEXITCODE -ne 0) { throw 'Matching source packaging failed.' }
+$assets = @($name, "$name.sig", 'latest.json', "Ghostlink_${version}_source.zip")
+$checksums = foreach ($asset in $assets) {
+  $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $releaseDir.FullName $asset)).Hash.ToLowerInvariant()
+  "$hash  $asset"
+}
+$checksums | Set-Content -LiteralPath (Join-Path $releaseDir.FullName 'SHA256SUMS.txt') -Encoding utf8

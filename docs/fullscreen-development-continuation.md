@@ -1,5 +1,21 @@
 # Fullscreen development continuation
 
+## Release 0.9.0 — November 15, 2026
+
+The user explicitly requested a public feature release after the earlier
+readiness review. Version 0.9.0 includes the bundled helper and subsequent UI,
+reminder and pointer refinements. The earlier local-only/no-version-bump notes
+below describe historical checkpoints. Security remediation remains separate
+and its unresolved findings are included in the release notes.
+
+Package/Tauri/Cargo versions are aligned at 0.9.0. The existing updater public
+key matches the previous release and verifies its signed 0.8.0 installer. Private
+signing keys remain in GitHub Actions. The release workflow uses the VS 2026
+runner and creates a draft with the installer, updater signature, latest.json,
+complete matching source ZIP and SHA-256 checksums. Publication follows asset
+and signature verification. See [0.9.0 notes](releases/0.9.0.md) and the
+[release page](https://github.com/paavalipopov/ghostlink/releases/tag/v0.9.0).
+
 ## Sharper pointers and Linux VM assessment — November 15, 2026
 
 Removed the blurred SVG drop-shadow filter from both arrow and ghost pointer

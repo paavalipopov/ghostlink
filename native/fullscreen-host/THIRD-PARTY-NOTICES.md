@@ -23,8 +23,7 @@ Bicubic attribution: ActualMandM/cemu_graphic_packs commit
 468d165cf27dae13a06e8bdc3d588d0af775ad91, Filters/Bicubic/output.glsl,
 as retained in its source header.
 
-This installer is an unpublished local prototype. Before conveying binaries,
-provide the exact complete corresponding source archive alongside the binary,
+The release provides the exact complete corresponding source archive alongside the binary,
 including modified Ghostlink/Magpie/wrapper sources, dependency sources and
 build instructions. A link to upstream's latest branch is insufficient.
 No separate Magpie installation is needed.

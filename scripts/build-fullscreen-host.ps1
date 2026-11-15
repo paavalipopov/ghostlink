@@ -1,4 +1,4 @@
-param([switch]$Restore)
+param([switch]$Restore, [switch]$BuildDependenciesFromSource)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location -LiteralPath $root
@@ -32,8 +32,14 @@ if ($Restore -or !(Test-Path "$magpie/packages/Microsoft.Windows.CppWinRT.3.0.26
 $env:CONAN_HOME = Join-Path $root 'out/conan'
 $env:PATH = (Join-Path $tools 'python/Scripts') + ';' + $env:PATH
 $deps = "$magpie/obj/x64/Release/_ConanDeps/Magpie"
-if ($Restore -or !(Test-Path "$deps/conandeps.props")) {
-  & $conan install "$magpie/src/Magpie/conanfile.txt" "-pr:h=$magpie/src/_ConanDeps/host-msvc.profile" "-pr:b=$magpie/src/_ConanDeps/build.profile" -s:h arch=x86_64 -s:h build_type=Release -s:b arch=x86_64 "-c:a=tools.microsoft.msbuild:installation_path=$vs" --lockfile=native/fullscreen-host/conan.lock --output-folder $deps --build=missing
+if ($Restore -or $BuildDependenciesFromSource -or !(Test-Path "$deps/conandeps.props")) {
+  $buildArgs = @('--build=missing')
+  if ($BuildDependenciesFromSource) {
+    # A release must retain preferred source, even if Conan has a prebuilt library.
+    # Build tools such as CMake can still use their prebuilt packages.
+    $buildArgs += @('fmt', 'spdlog', 'parallel-hashmap', 'rapidjson', 'kuba-zip', 'muparser', 'yas', 'imgui', 'rapidhash') | ForEach-Object { "--build=$_/*" }
+  }
+  & $conan install "$magpie/src/Magpie/conanfile.txt" "-pr:h=$magpie/src/_ConanDeps/host-msvc.profile" "-pr:b=$magpie/src/_ConanDeps/build.profile" -s:h arch=x86_64 -s:h build_type=Release -s:b arch=x86_64 "-c:a=tools.microsoft.msbuild:installation_path=$vs" --lockfile=native/fullscreen-host/conan.lock --output-folder $deps @buildArgs
   if ($LASTEXITCODE) { throw 'Conan restore failed.' }
 }
 & $msbuild native/fullscreen-host/fullscreen-host.vcxproj /m:4 /p:Configuration=Release /p:Platform=x64 "/p:SolutionDir=$magpie\" "/p:OutBaseDir=$root\out\fullscreen-host\" /p:DisableUserBuildOptions=true /verbosity:minimal

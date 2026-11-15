@@ -20,8 +20,8 @@ concurrency:
 
 jobs:
   windows:
-    runs-on: windows-latest
-    timeout-minutes: 30
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 60
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
@@ -38,7 +38,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Run tests
         run: npm test
@@ -48,6 +48,10 @@ jobs:
           rustup toolchain install stable-x86_64-pc-windows-msvc --profile minimal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           rustup default stable-x86_64-pc-windows-msvc
+
+      - name: Build bundled helper and dependency sources
+        shell: pwsh
+        run: ./scripts/build-fullscreen-host.ps1 -BuildDependenciesFromSource
 
       - name: Run Rust tests
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc
@@ -65,14 +69,16 @@ jobs:
         shell: pwsh
         run: |
           $version = (Get-Content 'src-tauri/tauri.conf.json' -Raw | ConvertFrom-Json).version
+          $notes = "docs/releases/$version.md"
+          if (!(Test-Path -LiteralPath $notes)) { throw "Missing release notes: $notes" }
           $draft = gh release view $env:RELEASE_TAG --json isDraft --jq '.isDraft' 2>$null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $env:RELEASE_TAG --draft --verify-tag --title "Ghostlink $version" --notes-file CHANGELOG.md
+            gh release create $env:RELEASE_TAG --draft --verify-tag --title "Ghostlink $version" --notes-file $notes
             if ($LASTEXITCODE -ne 0) { throw "Could not create draft release" }
           } elseif ($draft -ne 'true') { throw "Release $env:RELEASE_TAG is already public." }
-          gh release edit $env:RELEASE_TAG --title "Ghostlink $version" --notes-file CHANGELOG.md
+          gh release edit $env:RELEASE_TAG --title "Ghostlink $version" --notes-file $notes
           if ($LASTEXITCODE -ne 0) { throw "Could not update release notes" }
-          gh release upload $env:RELEASE_TAG "dist/release/Ghostlink_${version}_x64-setup.exe" "dist/release/Ghostlink_${version}_x64-setup.exe.sig" "dist/release/latest.json" --clobber
+          gh release upload $env:RELEASE_TAG "dist/release/Ghostlink_${version}_x64-setup.exe" "dist/release/Ghostlink_${version}_x64-setup.exe.sig" "dist/release/latest.json" "dist/release/Ghostlink_${version}_source.zip" "dist/release/SHA256SUMS.txt" --clobber
           if ($LASTEXITCODE -ne 0) { throw "Could not upload all release assets" }
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -83,7 +89,9 @@ jobs:
           $expected = @(
             "Ghostlink_${version}_x64-setup.exe",
             "Ghostlink_${version}_x64-setup.exe.sig",
-            "latest.json"
+            "latest.json",
+            "Ghostlink_${version}_source.zip",
+            "SHA256SUMS.txt"
           )
           $uploaded = @(gh release view $env:RELEASE_TAG --json assets --jq '.assets[].name')
           if ($LASTEXITCODE -ne 0) { throw "Could not inspect release assets" }

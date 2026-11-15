@@ -2,6 +2,10 @@
 
 Reviewed on November 11, 2026.
 
+Release status, November 15, 2026: the user requested publication of the 0.9.0
+feature release with these findings still open. This document's original 0.8.1
+version plan is historical; remediation remains a separate subsequent release.
+
 Reviewed release is Windows 0.8.0 at commit `6651101e01d2986104e3d3e987248a64d5a9f4b1`. The installed networking dependency is Trystero / `@trystero-p2p/core` 0.26.0.
 
 The security fixes and version bump to 0.8.1 are pending. This document records the investigation and proposed implementation for later work.
