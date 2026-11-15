@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPanelApi, type Controls } from '../src/prototype/panel-api'
+import { fullscreenToggleModel, selectionRejected } from '../src/prototype/fullscreen-toggle'
 
 const native = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -153,6 +154,63 @@ describe('Tauri panel bridge (mocked IPC)', () => {
     await bridge.api.pickFrame()
     emit('area-change', { area: selected, error: null })
     expect(tracked).toHaveBeenLastCalledWith(true)
+  })
+
+  it('re-enables fullscreen after a rejected minimized window is restored', async () => {
+    vi.useFakeTimers()
+    const bridge = createPanelApi(controls, vi.fn())
+    let windowTracked = false
+    bridge.onWindowTracked((tracked) => {
+      windowTracked = tracked
+    })
+    bridge.api.onPlayArea(vi.fn())
+    const pick = bridge.api.mark('window')
+    await vi.advanceTimersByTimeAsync(2100)
+    await pick
+    emit('area-change', { area: null, error: null, tracking: true })
+    const error = 'The selected window is closed, minimized, or unsuitable for fullscreen.'
+    expect(selectionRejected(error)).toBe(true)
+    bridge.rejectWindow()
+    expect(windowTracked).toBe(false)
+
+    emit('area-change', { area: selected, error: null, tracking: true })
+    expect(windowTracked).toBe(true)
+    expect(
+      fullscreenToggleModel({
+        state: 'failed',
+        error,
+        windowTracked,
+        busy: false,
+        marking: false
+      }).enabled
+    ).toBe(true)
+  })
+
+  it('allows display selection and dragging on a secondary display without window picking', async () => {
+    const secondary = {
+      name: 'Secondary',
+      bounds: { x: -1920, y: -200, width: 1920, height: 1080 },
+      scaleFactor: 1,
+      primary: false
+    }
+    const bridge = createPanelApi(
+      {
+        ...controls,
+        pickWindow: false,
+        displays: [...controls.displays, secondary]
+      },
+      vi.fn()
+    )
+    bridge.selectDisplay(secondary)
+    await bridge.api.useDisplay()
+    expect(native.invoke).toHaveBeenLastCalledWith('select_display', { bounds: secondary.bounds })
+    await bridge.api.pickFrame()
+    expect(native.invoke).toHaveBeenLastCalledWith('begin_drag', { bounds: secondary.bounds })
+
+    // Clearing the explicit choice follows the current area instead of resetting to primary.
+    bridge.selectDisplay(undefined)
+    await bridge.api.useDisplay()
+    expect(native.invoke).toHaveBeenLastCalledWith('select_display', { bounds: secondary.bounds })
   })
 
   it('drops old-session input after disconnect/reconnect and quantizes live movement', () => {

@@ -1,5 +1,54 @@
 # Fullscreen development continuation
 
+## Review fixes — November 14, 2026
+
+Reviewed remote `codex/tauri-windows-prototype` at `f76bcf2`. That checkpoint
+implemented the requested Shared area heading, Fullscreen pill and Alt+Shift+A.
+The four review findings are now fixed in `codex/fullscreen-review-fixes`:
+
+- Reserve the transition before reading controller state. Button and shortcut
+  requests during a transition are rejected immediately; the shortcut message
+  loop remains responsive while start/stop runs on a worker.
+- Recognize closed control pipes on writes as well as reads. Wait briefly for
+  the process exit code so a clean helper exit becomes idle; a nonzero exit or
+  an unresponsive running helper remains a failure.
+- Restore frontend window eligibility when native tracking reports a restored
+  window after a rejected attempt while minimized.
+- Restore the display selector when multiple displays are available, including
+  Linux X11, and rename the monitor-selection action to **Entire display**.
+
+Validation: 30 TypeScript tests and 19 Rust tests passed. The Rust suite also
+runs its otherwise-ignored subprocess fixture twice to cover closed pipes before
+clean and nonzero process exits. Regression coverage includes lock contention,
+minimize/reject/restore, and secondary-monitor selection with negative origins
+without Windows window picking. Prototype typechecking, scoped ESLint and the
+release build passed. Real Tauri/WebView2 checks passed for the heading/toggles,
+native physical placement, frame stability, guest rendering, session filtering
+and preference restoration. The latter use synthetic native IPC and do not prove
+real hotkey input, game capture, click-through or physical multi-monitor behavior.
+
+An unpublished installer was rebuilt with the unchanged bundled native helper:
+`dist/fullscreen-prototype/Ghostlink_0.8.0_x64-setup.exe`, 3,799,841 bytes
+(3.62 MiB). A portable copy is under `dist/fullscreen-prototype/portable`.
+These paths are in the review-fix worktree
+`C:\Users\paava\.codex\worktrees\9230\ghostlink`; older paths below are historical.
+The matching source archive and SHA-256 manifest are regenerated alongside it.
+No new performance measurements were taken; earlier fixture measurements below
+remain the available evidence. No version, signing key or security remediation
+changed, and no release was published.
+
+To try this candidate, exit the previous Ghostlink copy and launch the portable
+executable or install the new local installer. Pick a normal window, toggle
+Fullscreen with the pill and Alt+Shift+A, then minimize/restore and retry after a
+rejected minimized attempt. Rapid shortcut presses during a transition should
+not cause a delayed second toggle. On multiple displays, choose a display and
+use Entire display or Drag frame. Arbitrary-region capture is still unsupported.
+
+Remaining manual checks: Explorer, Telegram and a windowed game; real shortcut
+and emergency-exit input; guest click-through, edge alignment, Alt-Tab/camera
+behavior and two-PC sessions. Linux X11 and physical multi-monitor selection
+remain unverified. Mixed physical display scaling is skipped as requested.
+
 ## Next UI and shortcut work requested by the user — November 12, 2026
 
 These are implementation tasks for the next agent; they have not been implemented.

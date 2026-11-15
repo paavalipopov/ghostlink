@@ -92,8 +92,19 @@ impl Session {
     fn request(&mut self, command: &str) -> Result<Reply, String> {
         writeln!(self.input, "{command}")
             .and_then(|_| self.input.flush())
-            .map_err(|e| e.to_string())?;
+            .map_err(control_write_error)?;
         self.receive()
+    }
+}
+
+fn control_write_error(error: std::io::Error) -> String {
+    // A write can see a closed pipe before the process becomes signaled.
+    if error.kind() == std::io::ErrorKind::BrokenPipe
+        || matches!(error.raw_os_error(), Some(109 | 232 | 233))
+    {
+        super::HELPER_PIPE_CLOSED.into()
+    } else {
+        error.to_string()
     }
 }
 
@@ -156,7 +167,7 @@ impl BusyGuard {
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
             .is_err()
         {
-            Err("A fullscreen change is already in progress.".into())
+            Err(super::TOGGLE_BUSY.into())
         } else {
             Ok(Self(flag.clone()))
         }
@@ -287,6 +298,9 @@ impl Service {
     }
 
     pub fn note_failure(&self, error: &str) {
+        if error == super::TOGGLE_BUSY {
+            return;
+        }
         let status = {
             let mut control = self.control.lock().unwrap();
             if control.session.is_some() {
@@ -314,11 +328,26 @@ impl Service {
     }
 
     pub fn toggle(&self, app: &AppHandle) -> Result<Status, String> {
-        let active = self.is_active();
-        match super::toggle_action(active, self.busy.load(Ordering::SeqCst)) {
-            super::ToggleAction::Busy => Err("A fullscreen change is already in progress.".into()),
-            super::ToggleAction::Stop => self.stop_request(),
-            super::ToggleAction::Start => self.start(app, tracked_target(app)?),
+        let (busy, active) = self.begin_toggle()?;
+        self.toggle_reserved(app, busy, active)
+    }
+
+    fn begin_toggle(&self) -> Result<(BusyGuard, bool), String> {
+        let busy = BusyGuard::try_acquire(&self.busy)?;
+        Ok((busy, self.is_active()))
+    }
+
+    fn toggle_reserved(
+        &self,
+        app: &AppHandle,
+        _busy: BusyGuard,
+        active: bool,
+    ) -> Result<Status, String> {
+        if active {
+            self.stop();
+            Ok(self.status())
+        } else {
+            self.start_reserved(app, tracked_target(app)?)
         }
     }
 
@@ -346,7 +375,18 @@ impl Service {
                 let mut message: MSG = std::mem::zeroed();
                 while GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) > 0 {
                     if message.message == WM_HOTKEY {
-                        let _ = super::run_toggle(&app);
+                        // Drain keypresses during transitions instead of queueing toggles.
+                        let Ok((busy, active)) = service.begin_toggle() else {
+                            continue;
+                        };
+                        let service = service.clone();
+                        let app = app.clone();
+                        tauri::async_runtime::spawn_blocking(move || {
+                            match service.toggle_reserved(&app, busy, active) {
+                                Ok(status) => service.publish(&status),
+                                Err(error) => service.note_failure(&error),
+                            }
+                        });
                     }
                 }
                 let _ = UnregisterHotKey(std::ptr::null_mut(), 1);
@@ -365,6 +405,10 @@ impl Service {
 
     pub fn start(&self, app: &AppHandle, target: WindowTarget) -> Result<Status, String> {
         let _busy = BusyGuard::try_acquire(&self.busy)?;
+        self.start_reserved(app, target)
+    }
+
+    fn start_reserved(&self, app: &AppHandle, target: WindowTarget) -> Result<Status, String> {
         let mut control = self.control.lock().unwrap();
         if control.session.is_some() {
             return Err("Stop the current fullscreen helper first.".into());
@@ -526,4 +570,111 @@ fn tracked_target(app: &AppHandle) -> Result<WindowTarget, String> {
     selection
         .tracked_window
         .ok_or_else(|| "Pick a window before entering fullscreen.".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn busy_toggle_does_not_wait_for_controller_or_change_status() {
+        let service = Service::default();
+        let busy = BusyGuard::try_acquire(&service.busy).unwrap();
+        let control = service.control.lock().unwrap();
+        let contender = service.clone();
+        let (tx, rx) = mpsc::channel();
+        let worker = thread::spawn(move || {
+            let rejected = matches!(contender.begin_toggle(), Err(error) if error == super::super::TOGGLE_BUSY);
+            contender.note_failure(super::super::TOGGLE_BUSY);
+            tx.send(rejected).unwrap();
+        });
+        let result = rx.recv_timeout(Duration::from_secs(1));
+        drop(control);
+        drop(busy);
+        worker.join().unwrap();
+        assert_eq!(
+            result.unwrap(),
+            true,
+            "busy requests must not wait on the controller"
+        );
+        assert_eq!(service.status().state, "idle");
+        let (guard, active) = service.begin_toggle().unwrap();
+        assert!(!active);
+        drop(guard);
+        service.control.lock().unwrap().status.state = "scaling".into();
+        assert!(service.begin_toggle().unwrap().1);
+    }
+
+    // Run in a child test process so closing standard handles cannot affect the test runner.
+    #[test]
+    #[ignore = "subprocess fixture used by closed_pipe_exit_is_observed"]
+    fn closed_pipe_child() {
+        let Ok(code) = std::env::var("GHOSTLINK_PIPE_EXIT_CODE") else {
+            return;
+        };
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn GetStdHandle(kind: u32) -> isize;
+            fn CloseHandle(handle: isize) -> i32;
+            fn ExitProcess(code: u32) -> !;
+        }
+        unsafe {
+            CloseHandle(GetStdHandle(-10_i32 as u32));
+            CloseHandle(GetStdHandle(-11_i32 as u32));
+        }
+        eprintln!("control-pipes-closed");
+        thread::sleep(Duration::from_millis(150));
+        unsafe { ExitProcess(code.parse().unwrap()) }
+    }
+
+    #[test]
+    fn closed_pipe_exit_is_observed() {
+        for code in [0, 7] {
+            let mut child = Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "fullscreen::native::tests::closed_pipe_child",
+                    "--ignored",
+                    "--nocapture",
+                ])
+                .env("GHOSTLINK_PIPE_EXIT_CODE", code.to_string())
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .creation_flags(0x08000000)
+                .spawn()
+                .unwrap();
+            let input = child.stdin.take().unwrap();
+            let mut output = BufReader::new(child.stderr.take().unwrap());
+            let mut line = String::new();
+            output.read_line(&mut line).unwrap();
+            assert_eq!(line.trim(), "control-pipes-closed");
+            assert!(child.try_wait().unwrap().is_none());
+            let (_tx, replies) = mpsc::sync_channel(4);
+            let mut session = Session {
+                child,
+                input,
+                replies,
+                target: 0,
+                cleanup_needed: false,
+            };
+            let error = session
+                .request("status")
+                .err()
+                .expect("closed pipe must fail to write");
+            assert_eq!(error, super::super::HELPER_PIPE_CLOSED);
+            let exit = observe_exit(&mut session, error == super::super::HELPER_PIPE_CLOSED);
+            assert_eq!(exit, Some(code == 0));
+            let crash = format!(
+                "Fullscreen helper exited: {}",
+                session.child.try_wait().unwrap().unwrap()
+            );
+            let reported = super::super::lost_poll_error(&error, exit, &crash);
+            if code == 0 {
+                assert!(reported.is_empty())
+            } else {
+                assert_eq!(reported, crash)
+            }
+        }
+    }
 }

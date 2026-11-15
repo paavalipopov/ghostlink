@@ -8,6 +8,8 @@ import { FullscreenToggle } from './fullscreen-controls'
 
 type ReadyPanel = { controls: Controls; bridge: ReturnType<typeof createPanelApi> }
 
+// This file mounts the panel as a Vite entry point.
+// eslint-disable-next-line react-refresh/only-export-components
 function ConnectedPanel({
   controls,
   bridge,
@@ -29,6 +31,26 @@ function ConnectedPanel({
       canPickWindow={controls.pickWindow}
       areaNote={
         note ?? (controls.desktopAreas ? null : 'Desktop areas require an X11 session on Linux.')
+      }
+      areaControls={
+        controls.displays.length > 1 && (
+          <select
+            aria-label="Display"
+            className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs [color-scheme:dark]"
+            disabled={!controls.desktopAreas || marking}
+            onChange={(event) => {
+              const value = event.target.value
+              bridge.selectDisplay(value === '' ? undefined : controls.displays[Number(value)])
+            }}
+          >
+            <option value="">Current display</option>
+            {controls.displays.map((display, index) => (
+              <option key={index} value={index}>
+                {display.name}
+              </option>
+            ))}
+          </select>
+        )
       }
       fullscreenToggle={
         controls.pickWindow ? (

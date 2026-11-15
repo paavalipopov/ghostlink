@@ -35,6 +35,7 @@ function subscribe<T>(event: string, callback: (payload: T) => void): () => void
 }
 
 type PanelBridge = {
+  selectDisplay: (display: Display | undefined) => void
   api: PanelApi
   onWindowTracked: (callback: (tracked: boolean) => void) => () => void
   rejectWindow: () => void
@@ -44,6 +45,7 @@ export function createPanelApi(
   controls: Controls,
   report: (note: string | null) => void
 ): PanelBridge {
+  let preferred: Display | undefined
   let currentArea: Bounds | null = null
   let windowTracked = false
   let dragOpen = false
@@ -66,6 +68,7 @@ export function createPanelApi(
   function displayForArea(): Display | undefined {
     const area = currentArea
     return (
+      preferred ??
       (area &&
         controls.displays.find(
           ({ bounds }) =>
@@ -148,7 +151,11 @@ export function createPanelApi(
           dragOpen = false
           dragBaseline = null
         }
-        apply(change, settling && !sameBounds(change.area, baseline) ? false : undefined)
+        const restoredWindow = change.tracking === true && change.area !== null
+        apply(
+          change,
+          restoredWindow ? true : settling && !sameBounds(change.area, baseline) ? false : undefined
+        )
         if (!change.tracking) setMarking(false)
       })
       return () => {
@@ -240,6 +247,9 @@ export function createPanelApi(
 
   return {
     api,
+    selectDisplay(display) {
+      preferred = display
+    },
     onWindowTracked(callback) {
       trackedListeners.add(callback)
       callback(windowTracked)

@@ -624,7 +624,7 @@ function App({
             onClick={() => void api.useDisplay()}
           >
             <IconFullScreen />
-            Full Screen
+            Entire display
           </Button>
           <Button
             type="button"

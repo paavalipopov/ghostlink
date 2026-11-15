@@ -54,30 +54,9 @@ impl Service {
 }
 
 pub const HELPER_PIPE_CLOSED: &str = "helper-pipe-closed";
+pub const TOGGLE_BUSY: &str = "A fullscreen change is already in progress.";
 
-/// A status poll that lost the race with the helper process.
-/// `exit_success` is `Some(true)` for a clean exit, `Some(false)` for a nonzero
-/// crash, and `None` when the process is still running. An empty string means idle.
 pub const TOGGLE_SHORTCUT: &str = "Alt+Shift+A";
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum ToggleAction {
-    Start,
-    Stop,
-    Busy,
-}
-
-/// The button and Alt+Shift+A share this decision. A busy transition is rejected
-/// instead of queued behind the one already running.
-pub fn toggle_action(active: bool, busy: bool) -> ToggleAction {
-    if busy {
-        ToggleAction::Busy
-    } else if active {
-        ToggleAction::Stop
-    } else {
-        ToggleAction::Start
-    }
-}
 
 pub fn session_is_active(state: &str) -> bool {
     matches!(state, "starting" | "scaling" | "waiting" | "stopping")
@@ -91,6 +70,7 @@ pub fn shortcut_conflict(code: u32) -> String {
     }
 }
 
+/// A lost status poll is idle after a clean process exit and failed otherwise.
 pub fn lost_poll_error(
     poll_error: &str,
     exit_success: Option<bool>,
@@ -204,17 +184,6 @@ mod tests {
     fn closed_pipe_without_an_exit_code_is_failed() {
         let error = lost_poll_error(super::HELPER_PIPE_CLOSED, None, "");
         assert_eq!(error, "Fullscreen helper closed its control pipe.");
-    }
-
-    #[test]
-    fn shortcut_and_button_share_one_transition() {
-        assert_eq!(
-            super::toggle_action(false, false),
-            super::ToggleAction::Start
-        );
-        assert_eq!(super::toggle_action(true, false), super::ToggleAction::Stop);
-        assert_eq!(super::toggle_action(true, true), super::ToggleAction::Busy);
-        assert_eq!(super::toggle_action(false, true), super::ToggleAction::Busy);
     }
 
     #[test]

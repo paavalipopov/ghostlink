@@ -159,10 +159,14 @@ try {
   assert.ok(initial.button.x > initial.heading.right)
   assert.equal(await panel.eval(`document.querySelector('h2').textContent.trim()`), 'Shared area')
   assert.equal(await panel.eval(`document.body.innerText.includes('Dev fullscreen')`), false)
-  assert.equal(await panel.eval(`!!document.querySelector('[aria-label="Display"]')`), false)
+  const displayCount = (await panel.invoke('controls')).displays.length
+  assert.equal(
+    await panel.eval(`!!document.querySelector('[aria-label="Display"]')`),
+    displayCount > 1
+  )
   assert.equal(
     await panel.eval(
-      `document.querySelector('[data-testid="full-screen"]').textContent.includes('Full Screen')`
+      `document.querySelector('[data-testid="full-screen"]').textContent.includes('Entire display')`
     ),
     true
   )
