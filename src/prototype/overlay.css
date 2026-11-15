@@ -21,7 +21,8 @@ body,
   top: 20px;
   right: 24px;
   max-width: calc(100% - 48px);
-  color: rgb(255 255 255 / 65%);
+  color: rgb(255 255 255);
+  opacity: 0.65;
   font:
     400 14px / 1.45 'Segoe UI',
     sans-serif;
@@ -31,7 +32,7 @@ body,
     0 0 4px rgb(0 0 0 / 60%);
   pointer-events: none;
   user-select: none;
-  /* Six pulses in four seconds, then return to the subdued base color. */
+  /* Fade the text and its shadows together, then return to the steady opacity. */
   animation: fullscreen-exit-hint-intro calc(2s / 3) linear 6;
 }
 
@@ -45,11 +46,11 @@ body,
   35%,
   95%,
   100% {
-    color: rgb(255 255 255);
+    opacity: 1;
   }
   45%,
   85% {
-    color: rgb(255 255 255 / 40%);
+    opacity: 0.4;
   }
 }
 

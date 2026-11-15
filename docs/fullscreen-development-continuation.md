@@ -11,10 +11,17 @@ press Alt+Shift+A
 ```
 
 For the first four seconds it pulses six times (about 1.5 Hz), with short fades
-and held bright/dim phases. Bright text is fully opaque white; dim phases use
-40% opacity. It then remains at the normal 65% opacity. Reduced-motion settings
+and held bright/dim phases. The text stays white while the entire label,
+including its shadows, alternates between 100% and 40% opacity. It then remains
+at the normal 65% opacity. Reduced-motion settings
 disable the introduction animation and leave the steady hint. Repeated status
 updates do not restart it; a new fullscreen entry mounts a new hint.
+
+The initial animation changed text-color alpha while leaving its black shadows
+at full strength, which made it look like gray text. The corrected animation
+uses whole-element opacity. Transparent PNG captures confirmed the dim/steady
+phases contain 39.96%/65.08% of the bright phase's total alpha, including shadows;
+the earlier dim phase retained 79.84%. The six-pulse timing is unchanged.
 
 Native status updates show the hint only while the owned helper reports scaling.
 It hides on pause, stop, failure and exit; its initial state is restored after an
@@ -28,11 +35,11 @@ fixture exercised separately by its parent test. Prototype typechecking, scoped
 ESLint, the Windows/NSIS build and standard WebView2 desktop checks passed. A real
 animated-window capture confirmed the native reminder appeared with Frame off
 and a guest present, and disappeared after timed stop. The final two-line layout,
-666.667ms x 6 timing, 100%/40%/65% text colors and reduced-motion behavior were
+666.667ms x 6 timing, 100%/40%/65% group opacity and reduced-motion behavior were
 verified in an isolated WebView2 CSS check without further desktop input. The
 final animation has not had another live-capture/manual-input trial.
 
-The refreshed local installer is 3,806,399 bytes (3.63 MiB). Portable files,
+The refreshed local installer is 3,806,414 bytes (3.63 MiB). Portable files,
 matching sources and checksums are refreshed in the existing local output folder.
 No version bump, signing change or public release is included. The release
 blockers below remain open.
