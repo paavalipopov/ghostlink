@@ -178,6 +178,7 @@ type PanelProps = {
   areaNote?: string | null
   canSelectArea?: boolean
   canPickWindow?: boolean
+  fullscreenToggle?: ReactNode
 }
 
 function App({
@@ -186,7 +187,8 @@ function App({
   areaControls,
   areaNote,
   canSelectArea = true,
-  canPickWindow = true
+  canPickWindow = true,
+  fullscreenToggle = null
 }: PanelProps): JSX.Element {
   const [name, setName] = useState(() => stored('ghostlink.name', ''))
   const [code, setCode] = useState(() => stored('ghostlink.code', ''))
@@ -338,7 +340,7 @@ function App({
     return () => clearInterval(timer)
   }, [listenUntil, monitoring])
 
-  const layoutWidth = 300
+  const layoutWidth = fullscreenToggle ? 332 : 300
   const [layoutReady, setLayoutReady] = useState(false)
   const [zoom, setZoom] = useState(1)
   useLayoutEffect(() => {
@@ -525,7 +527,8 @@ function App({
 
       <section className="space-y-2.5">
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-          <h2 className="col-start-2 text-sm font-medium">Shared display</h2>
+          {fullscreenToggle}
+          <h2 className="col-start-2 text-sm font-medium">Shared area</h2>
           <Button
             type="button"
             variant="outline"

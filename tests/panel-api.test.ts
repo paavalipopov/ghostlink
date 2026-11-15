@@ -112,6 +112,49 @@ describe('Tauri panel bridge (mocked IPC)', () => {
     expect(marking.mock.calls).toEqual([[true], [false]])
   })
 
+  it('enables fullscreen only for a picked window, not a display or a finished drag', async () => {
+    vi.useFakeTimers()
+    const bridge = createPanelApi(controls, vi.fn())
+    const tracked = vi.fn()
+    bridge.onWindowTracked(tracked)
+    expect(tracked).toHaveBeenLastCalledWith(false)
+    const pick = bridge.api.mark('window')
+    await vi.advanceTimersByTimeAsync(2100)
+    await pick
+    expect(tracked).toHaveBeenLastCalledWith(true)
+    await bridge.api.useDisplay()
+    expect(tracked).toHaveBeenLastCalledWith(false)
+    const again = bridge.api.mark('window')
+    await vi.advanceTimersByTimeAsync(2100)
+    await again
+    expect(tracked).toHaveBeenLastCalledWith(true)
+    bridge.rejectWindow()
+    expect(tracked).toHaveBeenLastCalledWith(false)
+    const restored = bridge.api.mark('window')
+    await vi.advanceTimersByTimeAsync(2100)
+    await restored
+    bridge.api.onPlayArea(vi.fn())
+    await bridge.api.pickFrame()
+    emit('area-change', { area: selected, error: null, tracking: true })
+    expect(tracked).toHaveBeenLastCalledWith(true)
+    emit('area-change', { area: { x: 40, y: 40, width: 200, height: 120 }, error: null })
+    expect(tracked).toHaveBeenLastCalledWith(false)
+  })
+
+  it('keeps a picked window when a drag is cancelled', async () => {
+    vi.useFakeTimers()
+    const bridge = createPanelApi(controls, vi.fn())
+    const tracked = vi.fn()
+    bridge.onWindowTracked(tracked)
+    const pick = bridge.api.mark('window')
+    await vi.advanceTimersByTimeAsync(2100)
+    await pick
+    bridge.api.onPlayArea(vi.fn())
+    await bridge.api.pickFrame()
+    emit('area-change', { area: selected, error: null })
+    expect(tracked).toHaveBeenLastCalledWith(true)
+  })
+
   it('drops old-session input after disconnect/reconnect and quantizes live movement', () => {
     const { api } = createPanelApi(controls, vi.fn())
     const move = vi.fn(),

@@ -8,19 +8,26 @@ use std::{
     os::windows::process::CommandExt,
     process::{Child, ChildStdin, Command, Stdio},
     sync::{
+        atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver},
         Arc, Mutex,
     },
     thread,
     time::{Duration, Instant},
 };
-use tauri::Manager;
+use tauri::{AppHandle, Emitter, EventTarget, Manager};
 use windows_sys::Win32::{
-    Foundation::{HWND, RECT},
+    Foundation::{GetLastError, HWND, RECT},
     System::LibraryLoader::{GetModuleHandleW, GetProcAddress},
-    UI::WindowsAndMessaging::{
-        AllowSetForegroundWindow, ClipCursor, GetAncestor, GetClientRect, GetForegroundWindow,
-        GetWindowThreadProcessId, IsIconic, IsWindowVisible, SetForegroundWindow, GA_ROOT,
+    UI::{
+        Input::KeyboardAndMouse::{
+            RegisterHotKey, UnregisterHotKey, MOD_ALT, MOD_NOREPEAT, MOD_SHIFT,
+        },
+        WindowsAndMessaging::{
+            AllowSetForegroundWindow, ClipCursor, GetAncestor, GetClientRect, GetForegroundWindow,
+            GetMessageW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, SetForegroundWindow,
+            GA_ROOT, MSG, WM_HOTKEY,
+        },
     },
 };
 
@@ -113,47 +120,122 @@ impl Drop for Session {
     }
 }
 
+fn observe_exit(session: &mut Session, pipe_closed: bool) -> Option<bool> {
+    let success = |session: &mut Session| match session.child.try_wait() {
+        Ok(Some(code)) => Some(code.success()),
+        _ => None,
+    };
+    if let Some(done) = success(session) {
+        return Some(done);
+    }
+    if !pipe_closed {
+        return None;
+    }
+    let deadline = Instant::now() + Duration::from_millis(400);
+    while Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(20));
+        if let Some(done) = success(session) {
+            return Some(done);
+        }
+    }
+    success(session)
+}
+
 #[derive(Default)]
 struct Controller {
     session: Option<Session>,
     status: Status,
+    hotkey_error: Option<String>,
 }
 
-#[derive(Clone, Default)]
-pub struct Service(Arc<Mutex<Controller>>);
+struct BusyGuard(Arc<AtomicBool>);
+
+impl BusyGuard {
+    fn try_acquire(flag: &Arc<AtomicBool>) -> Result<Self, String> {
+        if flag
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            Err("A fullscreen change is already in progress.".into())
+        } else {
+            Ok(Self(flag.clone()))
+        }
+    }
+}
+
+impl Drop for BusyGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
+#[derive(Clone)]
+pub struct Service {
+    control: Arc<Mutex<Controller>>,
+    busy: Arc<AtomicBool>,
+    app: Arc<Mutex<Option<AppHandle>>>,
+}
+
+impl Default for Service {
+    fn default() -> Self {
+        Self {
+            control: Arc::new(Mutex::new(Controller::default())),
+            busy: Arc::new(AtomicBool::new(false)),
+            app: Arc::new(Mutex::new(None)),
+        }
+    }
+}
 
 impl Service {
-    pub fn setup(&self, _: &tauri::AppHandle) {
+    pub fn setup(&self, app: &AppHandle) {
+        *self.app.lock().unwrap() = Some(app.clone());
+        self.spawn_shortcut(app.clone());
         let service = self.clone();
         thread::Builder::new()
             .name("fullscreen-watchdog".into())
             .spawn(move || loop {
                 thread::sleep(Duration::from_millis(250));
-                let Ok(mut control) = service.0.try_lock() else {
+                let Ok(mut control) = service.control.try_lock() else {
                     continue;
                 };
-                let Some(session) = control.session.as_mut() else {
-                    continue;
-                };
-                let result = match session.child.try_wait() {
-                    Ok(Some(code)) => Err(if code.success() {
-                        String::new()
-                    } else {
-                        format!("Fullscreen helper exited: {code}")
-                    }),
-                    Ok(None) => session.request("status").and_then(|r| {
-                        if r.state == "failed" || r.error != 0 {
-                            Err(format!(
-                                "Magpie could not scale this window (code {}).",
-                                r.error
-                            ))
+                let result = {
+                    let Some(session) = control.session.as_mut() else {
+                        continue;
+                    };
+                    match session.child.try_wait() {
+                        Ok(Some(code)) => Err(if code.success() {
+                            String::new()
                         } else {
-                            Ok(r.state)
-                        }
-                    }),
-                    Err(e) => Err(e.to_string()),
+                            format!("Fullscreen helper exited: {code}")
+                        }),
+                        Ok(None) => match session.request("status") {
+                            Ok(reply) => {
+                                if reply.state == "failed" || reply.error != 0 {
+                                    Err(format!(
+                                        "Magpie could not scale this window (code {}).",
+                                        reply.error
+                                    ))
+                                } else {
+                                    Ok(reply.state)
+                                }
+                            }
+                            Err(error) => {
+                                let pipe_closed = error == super::HELPER_PIPE_CLOSED;
+                                let exit_success = observe_exit(session, pipe_closed);
+                                let crash = session
+                                    .child
+                                    .try_wait()
+                                    .ok()
+                                    .flatten()
+                                    .map(|code| format!("Fullscreen helper exited: {code}"))
+                                    .unwrap_or_default();
+                                Err(super::lost_poll_error(&error, exit_success, &crash))
+                            }
+                        },
+                        Err(e) => Err(e.to_string()),
+                    }
                 };
-                match result {
+                let published = match result {
                     Ok(state) => {
                         if state == "idle" {
                             control.session.take();
@@ -161,7 +243,8 @@ impl Service {
                         control.status = Status {
                             state,
                             ..Status::default()
-                        }
+                        };
+                        present(&control)
                     }
                     Err(error) => {
                         control.session.take();
@@ -174,24 +257,115 @@ impl Service {
                             error: (!error.is_empty()).then_some(error),
                             ..Status::default()
                         };
+                        present(&control)
                     }
-                }
+                };
+                drop(control);
+                service.publish(&published);
             })
             .expect("fullscreen watchdog thread");
     }
 
     pub fn status(&self) -> Status {
-        self.0.lock().unwrap().status.clone()
+        present(&self.control.lock().unwrap())
     }
 
     pub fn stop(&self) {
-        let mut control = self.0.lock().unwrap();
-        control.session.take();
-        control.status = Status::default();
+        let status = {
+            let mut control = self.control.lock().unwrap();
+            control.session.take();
+            control.status = Status::default();
+            present(&control)
+        };
+        self.publish(&status);
     }
 
-    pub fn start(&self, app: &tauri::AppHandle, target: WindowTarget) -> Result<Status, String> {
-        let mut control = self.0.lock().unwrap();
+    pub fn stop_request(&self) -> Result<Status, String> {
+        let _busy = BusyGuard::try_acquire(&self.busy)?;
+        self.stop();
+        Ok(self.status())
+    }
+
+    pub fn note_failure(&self, error: &str) {
+        let status = {
+            let mut control = self.control.lock().unwrap();
+            if control.session.is_some() {
+                return;
+            }
+            control.status = Status {
+                state: "failed".into(),
+                error: Some(error.to_string()),
+                ..Status::default()
+            };
+            present(&control)
+        };
+        self.publish(&status);
+    }
+
+    pub fn publish(&self, status: &Status) {
+        let Some(app) = self.app.lock().unwrap().clone() else {
+            return;
+        };
+        let _ = app.emit_to(
+            EventTarget::webview_window("panel"),
+            "fullscreen-status",
+            status,
+        );
+    }
+
+    pub fn toggle(&self, app: &AppHandle) -> Result<Status, String> {
+        let active = self.is_active();
+        match super::toggle_action(active, self.busy.load(Ordering::SeqCst)) {
+            super::ToggleAction::Busy => Err("A fullscreen change is already in progress.".into()),
+            super::ToggleAction::Stop => self.stop_request(),
+            super::ToggleAction::Start => self.start(app, tracked_target(app)?),
+        }
+    }
+
+    fn is_active(&self) -> bool {
+        let control = self.control.lock().unwrap();
+        control.session.is_some() || super::session_is_active(&control.status.state)
+    }
+
+    fn spawn_shortcut(&self, app: AppHandle) {
+        let service = self.clone();
+        thread::Builder::new()
+            .name("fullscreen-shortcut".into())
+            .spawn(move || unsafe {
+                const VK_A: u32 = 0x41;
+                let registered = RegisterHotKey(
+                    std::ptr::null_mut(),
+                    1,
+                    MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,
+                    VK_A,
+                );
+                if registered == 0 {
+                    service.note_shortcut(super::shortcut_conflict(GetLastError()));
+                    return;
+                }
+                let mut message: MSG = std::mem::zeroed();
+                while GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) > 0 {
+                    if message.message == WM_HOTKEY {
+                        let _ = super::run_toggle(&app);
+                    }
+                }
+                let _ = UnregisterHotKey(std::ptr::null_mut(), 1);
+            })
+            .expect("fullscreen shortcut thread");
+    }
+
+    fn note_shortcut(&self, message: String) {
+        {
+            let mut control = self.control.lock().unwrap();
+            control.hotkey_error = Some(message);
+        }
+        let status = self.status();
+        self.publish(&status);
+    }
+
+    pub fn start(&self, app: &AppHandle, target: WindowTarget) -> Result<Status, String> {
+        let _busy = BusyGuard::try_acquire(&self.busy)?;
+        let mut control = self.control.lock().unwrap();
         if control.session.is_some() {
             return Err("Stop the current fullscreen helper first.".into());
         }
@@ -263,7 +437,10 @@ impl Service {
                 // Bound memory even if a faulty helper never emits a newline.
                 let result = reader.by_ref().take(513).read_line(&mut line);
                 match result {
-                    Ok(0) | Err(_) => break,
+                    Ok(0) | Err(_) => {
+                        let _ = tx.send(Err(super::HELPER_PIPE_CLOSED.into()));
+                        break;
+                    }
                     Ok(_) => {
                         let response = if line.len() > 512 || !line.ends_with('\n') {
                             Err("Oversized helper reply.".into())
@@ -305,7 +482,7 @@ impl Service {
         if reply.state != "starting" || reply.error != 0 {
             session.cleanup_needed = false;
             return Err(if reply.error == -3 {
-                "Windows did not activate the selected window. Focus that window and retry Dev fullscreen.".into()
+                "Windows did not activate the selected window. Focus that window and retry Fullscreen.".into()
             } else {
                 format!("Fullscreen start rejected (code {}). Check the helper log for capture details.", reply.error)
             });
@@ -322,6 +499,31 @@ impl Service {
             ..Status::default()
         };
         control.session = Some(session);
-        Ok(control.status.clone())
+        let status = present(&control);
+        drop(control);
+        self.publish(&status);
+        Ok(status)
     }
+}
+
+fn present(control: &Controller) -> Status {
+    let mut status = control.status.clone();
+    if status.error.is_none() {
+        status.error = control.hotkey_error.clone();
+    }
+    status
+}
+
+fn tracked_target(app: &AppHandle) -> Result<WindowTarget, String> {
+    if !crate::platform::desktop_areas_available() {
+        return Err("Desktop area selection is unavailable in this session.".into());
+    }
+    let capture = app.state::<crate::Capture>();
+    let selection = capture.lock().unwrap();
+    if selection.drag.is_some() {
+        return Err("Finish or cancel the current drag first.".into());
+    }
+    selection
+        .tracked_window
+        .ok_or_else(|| "Pick a window before entering fullscreen.".into())
 }

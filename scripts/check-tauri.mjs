@@ -150,13 +150,42 @@ try {
   assert.equal(initial.overflow, false)
   assert.ok(
     Math.abs(initial.heading.center - initial.row.center) < 0.75,
-    'Shared display must stay centered in its row'
+    'Shared area must stay centered in its row'
   )
   assert.ok(
     Math.abs(initial.button.right - initial.row.right) < 0.75,
     'Frame button belongs in the right-hand space'
   )
   assert.ok(initial.button.x > initial.heading.right)
+  assert.equal(await panel.eval(`document.querySelector('h2').textContent.trim()`), 'Shared area')
+  assert.equal(await panel.eval(`document.body.innerText.includes('Dev fullscreen')`), false)
+  assert.equal(await panel.eval(`!!document.querySelector('[aria-label="Display"]')`), false)
+  assert.equal(
+    await panel.eval(
+      `document.querySelector('[data-testid="full-screen"]').textContent.includes('Full Screen')`
+    ),
+    true
+  )
+  assert.equal(
+    await panel.eval(
+      `document.querySelector('[data-testid="toggle-fullscreen"]').getAttribute('aria-pressed')`
+    ),
+    'false'
+  )
+  const fullscreen = await panel.eval(`(() => {
+    const button = document.querySelector('[data-testid="toggle-fullscreen"]')
+    const row = button.parentElement.getBoundingClientRect()
+    const rect = button.getBoundingClientRect()
+    return { x: rect.x, right: rect.right, rowLeft: row.x, headingLeft: document.querySelector('h2').getBoundingClientRect().x }
+  })()`)
+  assert.ok(
+    Math.abs(fullscreen.x - fullscreen.rowLeft) < 0.75,
+    'Fullscreen toggle belongs on the left'
+  )
+  assert.ok(
+    fullscreen.right < fullscreen.headingLeft,
+    'Fullscreen toggle stays left of the heading'
+  )
 
   const controls = await panel.invoke('controls')
   assert.equal(controls.desktopAreas, true)

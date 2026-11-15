@@ -903,6 +903,7 @@ fn main() {
             fullscreen::fullscreen_start,
             fullscreen::fullscreen_stop,
             fullscreen::fullscreen_status,
+            fullscreen::fullscreen_toggle,
             controls,
             select_display,
             select_window,

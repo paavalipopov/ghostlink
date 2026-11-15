@@ -4,9 +4,45 @@ import { createRoot } from 'react-dom/client'
 import App from '@renderer/App'
 import { createPanelApi, type Controls } from './panel-api'
 import './panel.css'
-import { FullscreenControls } from './fullscreen-controls'
+import { FullscreenToggle } from './fullscreen-controls'
 
 type ReadyPanel = { controls: Controls; bridge: ReturnType<typeof createPanelApi> }
+
+function ConnectedPanel({
+  controls,
+  bridge,
+  note,
+  setNote
+}: ReadyPanel & {
+  note: string | null
+  setNote: (note: string | null) => void
+}): JSX.Element {
+  const [windowTracked, setWindowTracked] = useState(false)
+  const [marking, setMarking] = useState(false)
+  useEffect(() => bridge.onWindowTracked(setWindowTracked), [bridge])
+  useEffect(() => bridge.api.onMarking(setMarking), [bridge])
+  return (
+    <App
+      api={bridge.api}
+      appVersion={controls.appVersion}
+      canSelectArea={controls.desktopAreas && controls.displays.length > 0}
+      canPickWindow={controls.pickWindow}
+      areaNote={
+        note ?? (controls.desktopAreas ? null : 'Desktop areas require an X11 session on Linux.')
+      }
+      fullscreenToggle={
+        controls.pickWindow ? (
+          <FullscreenToggle
+            report={setNote}
+            windowTracked={windowTracked}
+            marking={marking}
+            onSelectionRejected={bridge.rejectWindow}
+          />
+        ) : null
+      }
+    />
+  )
+}
 
 // This file mounts the panel as a Vite entry point.
 // eslint-disable-next-line react-refresh/only-export-components
@@ -35,42 +71,7 @@ function Panel(): JSX.Element {
         {note ?? 'Opening Ghostlink…'}
       </p>
     )
-  const { controls, bridge } = ready
-  return (
-    <App
-      api={bridge.api}
-      appVersion={controls.appVersion}
-      canSelectArea={controls.desktopAreas && controls.displays.length > 0}
-      canPickWindow={controls.pickWindow}
-      areaNote={
-        note ?? (controls.desktopAreas ? null : 'Desktop areas require an X11 session on Linux.')
-      }
-      areaControls={
-        <>
-          {controls.displays.length > 1 && (
-            <select
-              aria-label="Display"
-              className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs [color-scheme:dark]"
-              disabled={!controls.desktopAreas}
-              onChange={(event) => {
-                const value = event.target.value
-                bridge.selectDisplay(value === '' ? undefined : controls.displays[Number(value)])
-              }}
-            >
-              <option value="">Current display</option>
-              {controls.displays.map((display, index) => (
-                <option key={index} value={index}>
-                  {display.name} · {Math.round(display.scaleFactor * 100)}% · {display.bounds.width}{' '}
-                  × {display.bounds.height}
-                </option>
-              ))}
-            </select>
-          )}
-          {controls.pickWindow && <FullscreenControls report={setNote} />}
-        </>
-      }
-    />
-  )
+  return <ConnectedPanel {...ready} note={note} setNote={setNote} />
 }
 
 createRoot(document.getElementById('root')!).render(<Panel />)

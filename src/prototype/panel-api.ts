@@ -13,6 +13,10 @@ export type Controls = {
   pickWindow: boolean
 }
 type AreaChange = { area: Bounds | null; error: string | null; tracking?: boolean }
+
+function sameBounds(a: Bounds | null, b: Bounds | null): boolean {
+  return !!a && !!b && a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
+}
 type PeerInput = { kind: 'move' | 'click'; session: number; sample: Sample | null }
 
 function subscribe<T>(event: string, callback: (payload: T) => void): () => void {
@@ -30,14 +34,20 @@ function subscribe<T>(event: string, callback: (payload: T) => void): () => void
   }
 }
 
-type PanelBridge = { api: PanelApi; selectDisplay: (display: Display | undefined) => void }
+type PanelBridge = {
+  api: PanelApi
+  onWindowTracked: (callback: (tracked: boolean) => void) => () => void
+  rejectWindow: () => void
+}
 
 export function createPanelApi(
   controls: Controls,
   report: (note: string | null) => void
 ): PanelBridge {
-  let preferred: Display | undefined
   let currentArea: Bounds | null = null
+  let windowTracked = false
+  let dragOpen = false
+  let dragBaseline: Bounds | null = null
   let frameInitialized = false
   let marks = false
   let marking = false
@@ -45,11 +55,17 @@ export function createPanelApi(
   let session: number | null = null
   const areaListeners = new Set<(area: Bounds) => void>()
   const markingListeners = new Set<(active: boolean) => void>()
+  const trackedListeners = new Set<(tracked: boolean) => void>()
+
+  function setWindowTracked(next: boolean): void {
+    if (windowTracked === next) return
+    windowTracked = next
+    trackedListeners.forEach((listener) => listener(next))
+  }
 
   function displayForArea(): Display | undefined {
     const area = currentArea
     return (
-      preferred ??
       (area &&
         controls.displays.find(
           ({ bounds }) =>
@@ -68,11 +84,15 @@ export function createPanelApi(
     markingListeners.forEach((listener) => listener(active))
   }
 
-  function apply({ area, error }: AreaChange): Bounds | null {
-    report(error)
-    currentArea = area
-    if (area) areaListeners.forEach((listener) => listener(area))
-    return area
+  function apply(change: AreaChange, tracked?: boolean): Bounds | null {
+    report(change.error)
+    currentArea = change.area
+    if (tracked != null) setWindowTracked(tracked)
+    if (change.area) {
+      const area = change.area
+      areaListeners.forEach((listener) => listener(area))
+    }
+    return change.area
   }
 
   function onInput(kind: PeerInput['kind'], callback: (sample: Sample) => void): () => void {
@@ -91,7 +111,8 @@ export function createPanelApi(
     const selected = displayForArea()
     if (!selected || !controls.desktopAreas) return null
     try {
-      return apply(await invoke<AreaChange>('select_display', { bounds: selected.bounds }))
+      const change = await invoke<AreaChange>('select_display', { bounds: selected.bounds })
+      return apply(change, change.error ? undefined : false)
     } catch (error) {
       report(String(error))
       return null
@@ -107,7 +128,8 @@ export function createPanelApi(
     async restorePlayArea(bounds) {
       if (!controls.desktopAreas) return false
       try {
-        return apply(await invoke<AreaChange>('restore_area', { bounds })) !== null
+        const change = await invoke<AreaChange>('restore_area', { bounds })
+        return apply(change, change.error ? undefined : false) !== null
       } catch {
         return false
       }
@@ -120,7 +142,13 @@ export function createPanelApi(
     onPlayArea(callback) {
       areaListeners.add(callback)
       const stop = subscribe<AreaChange>('area-change', (change) => {
-        apply(change)
+        const baseline = dragBaseline
+        const settling = dragOpen && change.tracking !== true
+        if (settling) {
+          dragOpen = false
+          dragBaseline = null
+        }
+        apply(change, settling && !sameBounds(change.area, baseline) ? false : undefined)
         if (!change.tracking) setMarking(false)
       })
       return () => {
@@ -172,7 +200,8 @@ export function createPanelApi(
           await invoke('set_pick_count', { count })
           await new Promise((done) => window.setTimeout(done, 700))
         }
-        apply(await invoke<AreaChange>('select_window'))
+        const change = await invoke<AreaChange>('select_window')
+        apply(change, !change.error && change.area ? true : undefined)
       } catch (error) {
         report(String(error))
       } finally {
@@ -187,6 +216,8 @@ export function createPanelApi(
       report(null)
       try {
         await invoke('begin_drag', { bounds: selected.bounds })
+        dragBaseline = currentArea
+        dragOpen = true
       } catch (error) {
         report(String(error))
         setMarking(false)
@@ -209,8 +240,15 @@ export function createPanelApi(
 
   return {
     api,
-    selectDisplay(display) {
-      preferred = display
+    onWindowTracked(callback) {
+      trackedListeners.add(callback)
+      callback(windowTracked)
+      return () => {
+        trackedListeners.delete(callback)
+      }
+    },
+    rejectWindow() {
+      setWindowTracked(false)
     }
   }
 }
