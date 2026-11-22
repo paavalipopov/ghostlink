@@ -1,0 +1,110 @@
+name: Sign verified release
+
+on:
+  workflow_run:
+    workflows: ['Build unsigned release']
+    types: [completed]
+
+permissions: {}
+concurrency:
+  group: sign-release-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      installer: ${{ steps.check.outputs.installer }}
+      source: ${{ steps.check.outputs.source }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: scripts/release-assets.py
+          sparse-checkout-cone-mode: false
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I scripts/release-assets.py guard
+
+  sign:
+    needs: validate
+    environment: updater-signing
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      attempt: ${{ steps.signature.outputs.attempt }}
+    env:
+      VERSION: ${{ needs.validate.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: scripts/release-assets.py
+          sparse-checkout-cone-mode: false
+      - name: Verify build provenance and installer digest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INSTALLER_ARTIFACT: ${{ needs.validate.outputs.installer }}
+        run: python3 -I scripts/release-assets.py installer
+      - name: Verify standalone Tauri signer
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+            -o signer.tgz https://github.com/tauri-apps/tauri/releases/download/tauri-cli-v2.12.4/cargo-tauri-x86_64-unknown-linux-gnu.tgz
+          echo '820ae3c7580ca637cad15f65638960ee2a96e5a491e224691c86d6f25e6c9e8a  signer.tgz' | sha256sum --check
+          tar -xOzf signer.tgz cargo-tauri > cargo-tauri
+          chmod 755 cargo-tauri
+      - name: Sign only the verified installer
+        working-directory: ${{ runner.temp }}
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.UPDATER_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.UPDATER_PRIVATE_KEY_PASSWORD }}
+        run: |
+          test -n "$TAURI_SIGNING_PRIVATE_KEY"
+          exec ./cargo-tauri signer sign --app-version "$VERSION" "release-assets/Ghostlink_${VERSION}_x64-setup.exe"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: signature-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-assets/Ghostlink_${{ env.VERSION }}_x64-setup.exe.sig
+          if-no-files-found: error
+      - id: signature
+        run: echo "attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+
+  draft:
+    needs: [validate, sign]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: scripts/release-assets.py
+          sparse-checkout-cone-mode: false
+      - name: Install public signature verifier
+        run: sudo apt-get update -qq && sudo apt-get install --no-install-recommends -y minisign
+      - name: Check the signed version and corresponding source, then create a draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGN_ATTEMPT: ${{ needs.sign.outputs.attempt }}
+          INSTALLER_ARTIFACT: ${{ needs.validate.outputs.installer }}
+          SOURCE_ARTIFACT: ${{ needs.validate.outputs.source }}
+          TAURI_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
+        run: python3 -I scripts/release-assets.py draft

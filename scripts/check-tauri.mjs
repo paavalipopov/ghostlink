@@ -311,6 +311,28 @@ try {
     overlay.eval("!document.querySelector('.frame')")
   )
   console.log('PASS: Frame off survives a real panel reload with saved preferences.')
+  await panel.request('Network.enable', {})
+  await panel.request('Network.setBlockedURLs', { urls: ['wss://*'] })
+  await panel.eval(`document.querySelector('[aria-label="Pick a name"]').click()`)
+  await panel.eval(`document.querySelector('[aria-label="Make a code"]').click()`)
+  const secret = await panel.eval("document.querySelector('#code').value")
+  const connect = '[data-testid="connect"]'
+  await until('Connect enabled', () => panel.eval(`!document.querySelector('${connect}').disabled`))
+  await panel.eval(`document.querySelector('${connect}').click()`)
+  await until('active secret locked', () =>
+    panel.eval(`document.querySelector('#code').readOnly &&
+    document.querySelector('[aria-label="Make a code"]').disabled`)
+  )
+  await panel.eval(`document.querySelector('[aria-label="Make a code"]').click()`)
+  assert.equal(await panel.eval("document.querySelector('#code').value"), secret)
+  await panel.eval(`document.querySelector('${connect}').click()`)
+  await until('secret can change after disconnect', () =>
+    panel.eval(`!document.querySelector('#code').readOnly &&
+    !document.querySelector('[aria-label="Make a code"]').disabled`)
+  )
+  console.log(
+    'PASS: The active secret is copyable, stays locked while waiting and unlocks on disconnect.'
+  )
   console.log(`Desktop checks passed. Isolated profile: ${profile}`)
 } finally {
   if (panel) await panel.invoke('set_peer_sharing', { session: null }).catch(() => {})

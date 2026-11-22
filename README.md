@@ -2,7 +2,7 @@
 
 Ghostlink 0.9 runs on Windows x64 with Tauri, Rust and WebView2. Its fullscreen helper is bundled; a separate Magpie installation is not needed. Download the installer from [GitHub Releases](https://github.com/paavalipopov/ghostlink/releases/latest).
 
-Known authentication and resource-limit findings remain unresolved. Read the [security review](docs/security-review-0.8.1.md); fully exit and reopen the app before generating a replacement secret to revoke an earlier participant.
+The published 0.9.0 installer has known room-access and traffic-limit issues. On that version, fully quit and reopen Ghostlink before generating a replacement secret. The development build closes the old room on disconnect and limits network traffic. Both people need the updated build to connect. [Security review and fix status](docs/security-review-0.9.0.md)
 
 <img src="docs/logo.png" alt="Ghostlink" width="96">
 
@@ -37,6 +37,7 @@ Indicators blink while connecting, turn green when connected, and turn red if th
 ## Automated checks
 
 - `npm test` typechecks the tests and runs the shared TypeScript helpers plus Tauri panel-bridge tests with mocked IPC. Some historical parser tests remain as reference coverage.
+- `npm run test:link` uses Edge or Chrome and a local signaling relay to check real WebRTC pointer exchange, secret changes, private test isolation and reconnects. Set `GHOSTLINK_BROWSER` to select an installed Chromium-based browser.
 - `npm run test:rust` checks Rust coordinates, source/display selection state, test-pad validation, and Windows native window metadata. The Magpie metadata fixtures are synthetic; these are not real-game or mixed-display-scaling tests.
 - `npm run test:all` runs both of those suites.
 - `npm run test:tauri:desktop` builds the current Tauri executable and tests real WebView2 placement, fixed frame-button layout, frame visibility, native guest IPC filtering, and saved frame preference. It opens isolated test windows, uses synthetic guest data, and closes only its own process tree. It does not move the desktop mouse or contact signaling servers. It requires a Windows desktop and WebView2.

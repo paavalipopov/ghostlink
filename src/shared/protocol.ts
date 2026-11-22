@@ -1,6 +1,6 @@
 import type { Bounds, Point } from './coords'
 
-export const APP_ID = 'app.ghostlink.pointer'
+export const APP_ID = 'app.ghostlink.pointer.v2'
 
 export type Sample = {
   x: number

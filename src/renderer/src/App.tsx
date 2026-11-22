@@ -230,7 +230,7 @@ function App({
 
   const settings: LinkSettings = { code: sessionCode }
   const link = useGhostLink(monitoring, settings)
-  const testLink = useGhostLink(Boolean(testCode), { code: testCode })
+  const testLink = useGhostLink(Boolean(testCode), { code: testCode, scope: 'test' })
   const { publishMove, publishPing } = link
   const enabled = useRef(false)
   const nameRef = useRef('Friend')
@@ -460,6 +460,7 @@ function App({
           value={code}
           placeholder="secret"
           aria-label="secret"
+          readOnly={monitoring}
           onChange={(event) => {
             setCode(event.target.value)
             remember('ghostlink.code', event.target.value)
@@ -470,6 +471,7 @@ function App({
           data-testid="new-code"
           title="Make a code"
           aria-label="Make a code"
+          disabled={monitoring}
           className="absolute inset-y-0 right-0 flex w-8 items-center justify-center border-0 bg-transparent p-0 text-muted-foreground hover:text-foreground focus-visible:outline-none"
           onClick={() => {
             const next = makeCode()

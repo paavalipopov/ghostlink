@@ -14,6 +14,8 @@ ROOT = Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--output", type=Path, default=ROOT / "dist/fullscreen-prototype/ghostlink-fullscreen-corresponding-source.zip")
 parser.add_argument("--reuse-dependencies-from", type=Path, help="Reuse a verified source ZIP only when dependency inputs still match.")
+parser.add_argument("--release-config", type=Path, default=ROOT / "dist/release/tauri.release.json",
+                    help="Tauri configuration containing the public update key and endpoint.")
 args = parser.parse_args()
 ARCHIVE = args.output.resolve()
 if args.reuse_dependencies_from and args.reuse_dependencies_from.resolve() == ARCHIVE:
@@ -139,7 +141,7 @@ with zipfile.ZipFile(ARCHIVE, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
         # sources (including build tooling), but not Electron/native executables.
         tree(ROOT / "node_modules", "dependencies/npm", binary=True)
     z.writestr("SOURCE-MANIFEST.json", json.dumps(manifest, indent=2, sort_keys=True))
-    release_config = ROOT / "dist/release/tauri.release.json"
+    release_config = args.release_config
     if release_config.is_file():
         updater = json.loads(release_config.read_text(encoding="utf-8-sig"))["plugins"]["updater"]
         z.writestr("RELEASE-CONFIG.json", json.dumps({

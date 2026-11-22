@@ -26,7 +26,7 @@ function pointIn(event: PointerEvent<HTMLDivElement>): { x: number; y: number } 
 export function Pad(): JSX.Element {
   const params = new URLSearchParams(window.location.search)
   const code = params.get('code') ?? ''
-  const settings = { code }
+  const settings = { code, scope: 'test' as const }
   const ready = codeIsStrong(code)
   const link = useGhostLink(ready, settings)
   const relays = useRelayStatus(ready)

@@ -21,7 +21,7 @@
     "test:all": "npm test && npm run test:rust",
     "test:tauri:desktop": "tauri build --target x86_64-pc-windows-msvc --no-bundle -- --locked && node scripts/check-tauri.mjs",
     "test:electron:link": "npm run build && node scripts/check-link.mjs",
-    "test:link": "npm run test:electron:link",
+    "test:link": "node scripts/check-peer-room.mjs",
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
@@ -47,7 +47,7 @@
     "clsx": "^2.1.1",
     "electron-updater": "^6.8.12",
     "tailwind-merge": "^3.7.0",
-    "trystero": "^0.26.0",
+    "trystero": "0.27.0",
     "uiohook-napi": "^1.5.5"
   },
   "devDependencies": {
@@ -74,6 +74,7 @@
     "tailwindcss": "^4.3.4",
     "typescript": "^5.9.3",
     "vite": "^8.3.4",
-    "vitest": "^5.1.0"
+    "vitest": "^5.1.0",
+    "ws": "8.23.0"
   }
 }

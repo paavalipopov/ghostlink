@@ -1,104 +1,54 @@
-name: Release
+name: Build unsigned release
 
 on:
   workflow_dispatch:
-    inputs:
-      tag:
-        description: Existing Tauri version tag to prepare as a draft
-        required: true
-        type: string
   push:
-    tags:
-      - 'v*'
+    tags: ['v*']
 
 permissions:
-  contents: write
-
-concurrency:
-  group: release-${{ inputs.tag || github.ref_name }}
-  cancel-in-progress: false
+  contents: read
 
 jobs:
   windows:
+    if: github.ref_type == 'tag'
     runs-on: windows-2025-vs2026
     timeout-minutes: 60
-    env:
-      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
 
-      - name: Install dependencies
-        run: npm ci --ignore-scripts
-
-      - name: Run tests
-        run: npm test
-
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: python -B tests/test_release_assets.py
+      - run: npm run test:link
       - name: Set up Rust MSVC
         run: |
           rustup toolchain install stable-x86_64-pc-windows-msvc --profile minimal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           rustup default stable-x86_64-pc-windows-msvc
-
       - name: Build bundled helper and dependency sources
-        shell: pwsh
         run: ./scripts/build-fullscreen-host.ps1 -BuildDependenciesFromSource
-
-      - name: Run Rust tests
-        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc
-
-      - name: Build installer and update metadata
-        shell: pwsh
-        run: ./scripts/build-tauri-release.ps1 -Repository $env:GITHUB_REPOSITORY -Tag $env:RELEASE_TAG
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc
+      - name: Build installer and corresponding source
+        run: ./scripts/build-tauri-release.ps1 -Repository $env:GITHUB_REPOSITORY -Tag $env:GITHUB_REF_NAME
         env:
           TAURI_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           TAURI_WINDOWS_SIGN_COMMAND: ${{ vars.TAURI_WINDOWS_SIGN_COMMAND }}
-
-      - name: Upload draft release
-        shell: pwsh
-        run: |
-          $version = (Get-Content 'src-tauri/tauri.conf.json' -Raw | ConvertFrom-Json).version
-          $notes = "docs/releases/$version.md"
-          if (!(Test-Path -LiteralPath $notes)) { throw "Missing release notes: $notes" }
-          $draft = gh release view $env:RELEASE_TAG --json isDraft --jq '.isDraft' 2>$null
-          if ($LASTEXITCODE -ne 0) {
-            gh release create $env:RELEASE_TAG --draft --verify-tag --title "Ghostlink $version" --notes-file $notes
-            if ($LASTEXITCODE -ne 0) { throw "Could not create draft release" }
-          } elseif ($draft -ne 'true') { throw "Release $env:RELEASE_TAG is already public." }
-          gh release edit $env:RELEASE_TAG --title "Ghostlink $version" --notes-file $notes
-          if ($LASTEXITCODE -ne 0) { throw "Could not update release notes" }
-          gh release upload $env:RELEASE_TAG "dist/release/Ghostlink_${version}_x64-setup.exe" "dist/release/Ghostlink_${version}_x64-setup.exe.sig" "dist/release/latest.json" "dist/release/Ghostlink_${version}_source.zip" "dist/release/SHA256SUMS.txt" --clobber
-          if ($LASTEXITCODE -ne 0) { throw "Could not upload all release assets" }
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Verify release assets
-        shell: pwsh
-        run: |
-          $version = (Get-Content 'src-tauri/tauri.conf.json' -Raw | ConvertFrom-Json).version
-          $expected = @(
-            "Ghostlink_${version}_x64-setup.exe",
-            "Ghostlink_${version}_x64-setup.exe.sig",
-            "latest.json",
-            "Ghostlink_${version}_source.zip",
-            "SHA256SUMS.txt"
-          )
-          $uploaded = @(gh release view $env:RELEASE_TAG --json assets --jq '.assets[].name')
-          if ($LASTEXITCODE -ne 0) { throw "Could not inspect release assets" }
-          foreach ($asset in $expected) {
-            if ($uploaded -notcontains $asset) {
-              throw "Draft release is missing $asset"
-            }
-          }
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: installer-${{ github.run_attempt }}
+          path: dist/unsigned-release/Ghostlink_*_x64-setup.exe
+          if-no-files-found: error
+          compression-level: 0
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: source-${{ github.run_attempt }}
+          path: dist/unsigned-release/Ghostlink_*_source.zip
+          if-no-files-found: error
+          compression-level: 0

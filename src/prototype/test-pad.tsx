@@ -27,7 +27,7 @@ function TestPad(): JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [session, setSession] = useState<string | null>(null)
   const [timedOutSession, setTimedOutSession] = useState<string | null>(null)
-  const { phase, detail } = useGhostLink(session !== null, { code: session ?? '' })
+  const { phase, detail } = useGhostLink(session !== null, { code: session ?? '', scope: 'test' })
   const relays = useRelayStatus(session !== null)
   const frame = useRef<number | null>(null)
   const pendingPoint = useRef<Point | null>(null)
