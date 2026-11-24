@@ -35,6 +35,7 @@
       },
       {
         "label": "picker",
+        "create": false,
         "title": "Ghostlink Frame Picker",
         "url": "picker.html",
         "decorations": false,
@@ -65,6 +66,7 @@
       },
       {
         "label": "test-pad",
+        "create": false,
         "title": "Ghostlink Test Trackpad",
         "url": "test-pad.html",
         "width": 316,

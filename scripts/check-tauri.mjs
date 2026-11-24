@@ -1,7 +1,7 @@
 // Real Tauri + WebView2 checks with isolated preferences and synthetic native IPC input.
 // This does not move/click the system mouse, contact relays, or test real Magpie/game rendering.
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
@@ -49,6 +49,7 @@ const child = spawn(
       WEBVIEW2_USER_DATA_FOLDER: profile,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:
         `--remote-debugging-port=${port} --remote-debugging-address=127.0.0.1 ` +
+        '--no-proxy-server --host-resolver-rules="MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE *.localhost" ' +
         '--disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows'
     }
   }
@@ -59,19 +60,67 @@ child.on('error', (error) => {
 })
 const connections = []
 
+async function pages() {
+  if (launchError) throw launchError
+  const targets = await (
+    await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(1500) })
+  ).json()
+  return targets.filter(
+    (page) => page.type === 'page' && new URL(page.url).hostname === 'tauri.localhost'
+  )
+}
+
+async function expectPages(...paths) {
+  await until(
+    `only ${paths.join(', ')} open`,
+    async () =>
+      JSON.stringify((await pages()).map((page) => new URL(page.url).pathname).sort()) ===
+      JSON.stringify(paths.toSorted())
+  )
+}
+
+// Send the title-bar Close message only to a top-level window owned by this test instance.
+function closeNativeWindow(title) {
+  execFileSync(
+    'powershell.exe',
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      `
+    $ErrorActionPreference = 'Stop'
+    Add-Type -Namespace DesktopCheck -Name Native -MemberDefinition @'
+      [DllImport("user32.dll", CharSet=CharSet.Unicode)]
+      public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, IntPtr cls, string title);
+      [DllImport("user32.dll")]
+      public static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+      [DllImport("user32.dll")]
+      public static extern bool PostMessage(IntPtr window, uint msg, IntPtr wp, IntPtr lp);
+'@
+    $handle = [IntPtr]::Zero
+    do {
+      $handle = [DesktopCheck.Native]::FindWindowEx([IntPtr]::Zero, $handle, [IntPtr]::Zero, $env:GHOSTLINK_TEST_WINDOW)
+      if ($handle -eq [IntPtr]::Zero) { throw 'The test window was not found' }
+      [uint32]$owner = 0
+      [void][DesktopCheck.Native]::GetWindowThreadProcessId($handle, [ref]$owner)
+    } until ($owner -eq [uint32]$env:GHOSTLINK_TEST_PID)
+    if (!([DesktopCheck.Native]::PostMessage($handle, 0x10, [IntPtr]::Zero, [IntPtr]::Zero))) {
+      throw 'Could not close the test window'
+    }
+  `
+    ],
+    {
+      windowsHide: true,
+      timeout: 10000,
+      env: { ...process.env, GHOSTLINK_TEST_WINDOW: title, GHOSTLINK_TEST_PID: String(child.pid) }
+    }
+  )
+}
+
 async function attach(path) {
-  const page = await until(`WebView ${path}`, async () => {
-    if (launchError) throw launchError
-    const pages = await (
-      await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(1500) })
-    ).json()
-    return pages.find(
-      (page) =>
-        page.type === 'page' &&
-        new URL(page.url).hostname === 'tauri.localhost' &&
-        new URL(page.url).pathname === path
-    )
-  })
+  const page = await until(`WebView ${path}`, async () =>
+    (await pages()).find((page) => new URL(page.url).pathname === path)
+  )
   const ws = new WebSocket(page.webSocketDebuggerUrl)
   await Promise.race([
     once(ws, 'open'),
@@ -155,7 +204,8 @@ let panel
 try {
   panel = await attach('/')
   const overlay = await attach('/overlay.html')
-  const pad = await attach('/test-pad.html')
+  const permanent = ['/', '/overlay.html']
+  await expectPages(...permanent)
   assert.equal(await overlay.invoke('fullscreen_exit_hint'), null)
   await assert.rejects(panel.invoke('fullscreen_exit_hint'), /Only the overlay/)
   assert.equal(
@@ -238,6 +288,77 @@ try {
   const selected = await panel.invoke('restore_area', { bounds: area })
   assert.equal(selected.error, null)
   assert.deepEqual(selected.area, area)
+  await assert.rejects(panel.invoke('open_test_pad', { code: 'bad' }), /Invalid test secret/)
+  await assert.rejects(panel.invoke('begin_drag', { bounds: { ...display, width: 1 } }))
+  await expectPages(...permanent)
+  for (let pass = 0; pass < 2; pass++) {
+    await panel.invoke('prepare_pick_marker')
+    await panel.invoke('set_pick_count', { count: 3 })
+    await expectPages(...permanent, '/pick-marker.html')
+    await panel.invoke('set_pick_count', { count: null })
+    await expectPages(...permanent)
+  }
+  await panel.invoke('set_pick_count', { count: null })
+  for (const commit of [true, false]) {
+    await panel.invoke('begin_drag', { bounds: display })
+    const picker = await attach('/picker.html')
+    await until('interactive picker', () => picker.eval("!!document.querySelector('.picker')"))
+    if (commit) {
+      // Exercise the real renderer's pointer capture and commit handlers.
+      await picker.request('Input.dispatchMouseEvent', {
+        type: 'mousePressed',
+        x: 30,
+        y: 30,
+        button: 'left',
+        buttons: 1,
+        clickCount: 1
+      })
+      await picker.request('Input.dispatchMouseEvent', {
+        type: 'mouseMoved',
+        x: 180,
+        y: 160,
+        buttons: 1
+      })
+      await picker.request('Input.dispatchMouseEvent', {
+        type: 'mouseReleased',
+        x: 180,
+        y: 160,
+        button: 'left',
+        clickCount: 1
+      })
+    } else {
+      await picker.eval(
+        "setTimeout(() => window.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape'})), 0)"
+      )
+    }
+    await expectPages(...permanent)
+    if (commit)
+      await until('drawn overlay', () =>
+        overlay.eval('Math.abs(innerWidth-150)<=1 && Math.abs(innerHeight-130)<=1')
+      )
+    else
+      assert.ok(await overlay.eval('Math.abs(innerWidth-150)<=1 && Math.abs(innerHeight-130)<=1'))
+  }
+  await panel.invoke('restore_area', { bounds: area })
+  await Promise.all(
+    Array.from({ length: 3 }, () => panel.invoke('open_test_pad', { code: 'first-local-test' }))
+  )
+  await expectPages(...permanent, '/test-pad.html')
+  const firstPad = await attach('/test-pad.html')
+  await until('test pad initialized', () =>
+    firstPad.eval("!!document.querySelector('[data-testid=pad-area]')")
+  )
+  assert.equal(await firstPad.invoke('test_pad_session'), 'first-local-test')
+  await firstPad.eval(
+    "setTimeout(() => window.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape'})), 0)"
+  )
+  await expectPages(...permanent)
+  await panel.invoke('open_test_pad', { code: 'second-local-test' })
+  const pad = await attach('/test-pad.html')
+  assert.equal(await pad.invoke('test_pad_session'), 'second-local-test')
+  console.log(
+    'PASS: temporary pickers and trackpad open on demand, release their WebViews and reopen with the correct area and session.'
+  )
   assert.deepEqual(await pad.invoke('test_pad_area'), area)
   await until('physical overlay placement', async () => {
     const geometry = await overlay.eval(
@@ -282,6 +403,27 @@ try {
   console.log(
     'PASS: Frame on/off keeps button width, label/status positions, centered heading, native area, and guest visibility stable.'
   )
+  closeNativeWindow('Ghostlink Test Trackpad')
+  await expectPages(...permanent)
+  await panel.eval("document.querySelector('[data-testid=drag-frame]').click()")
+  await expectPages(...permanent, '/picker.html')
+  closeNativeWindow('Ghostlink Frame Picker')
+  await expectPages(...permanent)
+  await until('native close restores panel controls', () =>
+    panel.eval("!document.querySelector('[data-testid=drag-frame]').disabled")
+  )
+  await panel.eval("document.querySelector('[data-testid=open-pad]').click()")
+  const reopenedPad = await attach('/test-pad.html')
+  await until('panel starts a fresh private session', async () => {
+    const session = await reopenedPad.invoke('test_pad_session')
+    return session && session !== 'second-local-test'
+  })
+  assert.deepEqual(await reopenedPad.invoke('test_pad_area'), area)
+  closeNativeWindow('Ghostlink Test Trackpad')
+  await expectPages(...permanent)
+  console.log(
+    'PASS: native Close releases both windows, restores the panel and preserves the shared area.'
+  )
 
   await panel.invoke('set_peer_sharing', { session: 62 })
   await until('old guest cleared', () =>
@@ -301,6 +443,14 @@ try {
     'PASS: native IPC ignores stale-session and out-of-range guest input, then accepts current valid input.'
   )
 
+  await panel.invoke('prepare_pick_marker')
+  await panel.invoke('set_pick_count', { count: 2 })
+  await until('countdown appears', () =>
+    overlay.eval("!!document.querySelector('[data-testid=pick-count]')")
+  )
+  await panel.invoke('open_test_pad', { code: 'interrupted-local-test' })
+  await panel.invoke('begin_drag', { bounds: display })
+  await expectPages(...permanent, '/test-pad.html', '/pick-marker.html', '/picker.html')
   await panel.eval('window.__beforeTestReload=true; setTimeout(()=>location.reload(),0)')
   await until('frame preference after panel reload', () =>
     panel.eval(
@@ -310,7 +460,13 @@ try {
   await until('frame remains hidden after reload', () =>
     overlay.eval("!document.querySelector('.frame')")
   )
-  console.log('PASS: Frame off survives a real panel reload with saved preferences.')
+  await expectPages(...permanent)
+  await until('interrupted countdown cleared', () =>
+    overlay.eval("!document.querySelector('[data-testid=pick-count]')")
+  )
+  console.log(
+    'PASS: Panel reload releases interrupted tools, clears the countdown and preserves the saved frame preference.'
+  )
   await panel.request('Network.enable', {})
   await panel.request('Network.setBlockedURLs', { urls: ['wss://*'] })
   await panel.eval(`document.querySelector('[aria-label="Pick a name"]').click()`)

@@ -113,6 +113,17 @@ describe('Tauri panel bridge (mocked IPC)', () => {
     expect(marking.mock.calls).toEqual([[true], [false]])
   })
 
+  it('can immediately reopen a picker cancelled while its first window was opening', async () => {
+    const { api } = createPanelApi(controls, vi.fn())
+    api.onPlayArea(vi.fn())
+    native.invoke.mockImplementationOnce(async () => {
+      emit('area-change', { area: selected, error: null, tracking: false })
+    })
+    await api.pickFrame()
+    await api.pickFrame()
+    expect(native.invoke.mock.calls.filter(([command]) => command === 'begin_drag')).toHaveLength(2)
+  })
+
   it('enables fullscreen only for a picked window, not a display or a finished drag', async () => {
     vi.useFakeTimers()
     const bridge = createPanelApi(controls, vi.fn())

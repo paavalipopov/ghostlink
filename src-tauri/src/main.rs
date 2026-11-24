@@ -32,6 +32,7 @@ struct Selection {
     tracked_window: Option<platform::WindowTarget>,
     frame_hidden: bool,
     drag: Option<Bounds>,
+    completed_drag: Option<Drag>,
     test_pad: TestPad,
     peer_session: Option<u32>,
     pick_displays: Option<Arc<[Display]>>,
@@ -64,6 +65,10 @@ impl Selection {
 }
 
 type Capture = Mutex<Selection>;
+
+// Serializes requests from rapid repeated clicks while a hidden WebView is starting.
+#[derive(Default)]
+struct ToolCreation(tauri::async_runtime::Mutex<()>);
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -344,38 +349,57 @@ fn overlay_frame_visible(window: WebviewWindow) -> Result<bool, String> {
     Ok(!window.state::<Capture>().lock().unwrap().frame_hidden)
 }
 
-#[tauri::command]
-async fn prepare_pick_marker(window: WebviewWindow) -> Result<(), String> {
-    require_panel(&window)?;
-    let app = window.app_handle();
-    if app.get_webview_window("pick-marker").is_none() {
-        let config = app
-            .config()
-            .app
-            .windows
-            .iter()
-            .find(|config| config.label == "pick-marker")
-            .ok_or("Pick marker configuration is missing.")?;
-        tauri::WebviewWindowBuilder::from_config(app, config)
-            .and_then(|builder| builder.build())
-            .map_err(|error| error.to_string())?;
+async fn tool_window(app: &AppHandle, label: &str) -> Result<WebviewWindow, String> {
+    let creation = app.state::<ToolCreation>();
+    let _guard = creation.0.lock().await;
+    if let Some(window) = app.get_webview_window(label) {
+        return Ok(window);
     }
-    Ok(())
+    let config = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|config| config.label == label)
+        .ok_or_else(|| format!("Missing window configuration for {label}."))?;
+    tauri::WebviewWindowBuilder::from_config(app, config)
+        .and_then(|builder| builder.build())
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn set_pick_count(window: WebviewWindow, count: Option<u8>) -> Result<(), String> {
+async fn prepare_pick_marker(window: WebviewWindow) -> Result<(), String> {
+    require_panel(&window)?;
+    tool_window(window.app_handle(), "pick-marker")
+        .await
+        .map(|_| ())
+}
+
+#[tauri::command]
+async fn set_pick_count(window: WebviewWindow, count: Option<u8>) -> Result<(), String> {
     require_panel(&window)?;
     let app = window.app_handle();
-    let marker = app
-        .get_webview_window("pick-marker")
-        .ok_or("Pick marker is missing.")?;
     let state = app.state::<Capture>();
-    let marker_visible = state.lock().unwrap().pick_displays.is_some();
     if count.is_none() {
-        state.lock().unwrap().pick_displays = None;
-        platform::set_overlay_visible(&marker, false)?;
-    } else if !marker_visible {
+        if let Some(marker) = app.get_webview_window("pick-marker") {
+            // destroy() posts a native message. Wait until this label can be reused.
+            let (closed, mut closing) = tauri::async_runtime::channel(1);
+            marker.on_window_event(move |event| {
+                if matches!(event, tauri::WindowEvent::Destroyed) {
+                    let _ = closed.try_send(());
+                }
+            });
+            marker.destroy().map_err(|error| error.to_string())?;
+            tokio::time::timeout(Duration::from_secs(5), closing.recv())
+                .await
+                .map_err(|_| "The pick marker did not close in time.")?;
+        }
+        return Ok(());
+    }
+    if state.lock().unwrap().pick_displays.is_none() {
+        let marker = app
+            .get_webview_window("pick-marker")
+            .ok_or("Pick marker is missing.")?;
         let displays = list_displays(&window).map_err(|error| error.to_string())?;
         let point = platform::cursor(app).ok_or("Could not read the desktop pointer.")?;
         marker
@@ -452,39 +476,46 @@ fn select_window(window: WebviewWindow) -> Result<AreaChange, String> {
 }
 
 #[tauri::command]
-fn begin_drag(window: WebviewWindow, bounds: Bounds) -> Result<(), String> {
+async fn begin_drag(window: WebviewWindow, bounds: Bounds) -> Result<(), String> {
     require_selection(&window)?;
     require_display(&window, bounds)?;
     let app = window.app_handle();
-    let picker = app
-        .get_webview_window("picker")
-        .ok_or("Frame picker is missing.")?;
     let overlay = app
         .get_webview_window("overlay")
         .ok_or("Overlay is missing.")?;
-    place_window(&picker, bounds)?;
-    platform::set_overlay_visible(&overlay, false)?;
+    let picker = tool_window(app, "picker").await?;
     {
         let state = app.state::<Capture>();
         let mut state = state.lock().unwrap();
+        if state.drag.is_some() {
+            return Err("A frame selection is already open.".into());
+        }
         state.drag = Some(bounds);
         state.test_pad.preview = None;
     }
     app.state::<fullscreen::Service>().stop();
-    if let Err(error) = picker.show().and_then(|()| picker.set_focus()) {
-        settle_drag(&picker, None)?;
-        return Err(error.to_string());
+    let opening = place_window(&picker, bounds)
+        .and_then(|()| platform::set_overlay_visible(&overlay, false))
+        .and_then(|()| {
+            picker
+                .show()
+                .and_then(|()| picker.set_focus())
+                .map_err(|e| e.to_string())
+        });
+    if let Err(error) = opening {
+        if picker.destroy().is_err() {
+            let _ = settle_drag(app);
+        }
+        return Err(error);
     }
     Ok(())
 }
 
-fn settle_drag(picker: &WebviewWindow, drag: Option<Drag>) -> Result<(), String> {
-    picker.hide().map_err(|error| error.to_string())?;
-    let app = picker.app_handle();
+fn settle_drag(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<Capture>();
-    let (bounds, previous) = {
+    let (bounds, previous, drag) = {
         let mut state = state.lock().unwrap();
-        (state.drag.take(), state.area)
+        (state.drag.take(), state.area, state.completed_drag.take())
     };
     let Some(bounds) = bounds else { return Ok(()) };
     let completed = drag.is_some();
@@ -495,10 +526,9 @@ fn settle_drag(picker: &WebviewWindow, drag: Option<Drag>) -> Result<(), String>
         let overlay = app
             .get_webview_window("overlay")
             .ok_or("Overlay is missing.")?;
-        configure_overlay(&overlay, previous)?;
         AreaChange {
             area: previous,
-            error: None,
+            error: configure_overlay(&overlay, previous).err(),
             tracking: false,
         }
     };
@@ -514,11 +544,12 @@ fn finish_drag(window: WebviewWindow, drag: Option<Drag>) -> Result<(), String> 
     if window.label() != "picker" {
         return Err("Only the frame picker can finish a drag.".into());
     }
-    settle_drag(&window, drag)
+    window.state::<Capture>().lock().unwrap().completed_drag = drag;
+    window.destroy().map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn open_test_pad(window: WebviewWindow, code: String) -> Result<(), String> {
+async fn open_test_pad(window: WebviewWindow, code: String) -> Result<(), String> {
     require_selection(&window)?;
     if !(6..=128).contains(&code.len()) {
         return Err("Invalid test secret.".into());
@@ -528,14 +559,16 @@ fn open_test_pad(window: WebviewWindow, code: String) -> Result<(), String> {
     if state.lock().unwrap().area.is_none() {
         return Err("Choose a shared area before opening the test trackpad.".into());
     }
-    let pad = app
-        .get_webview_window("test-pad")
-        .ok_or("Test trackpad is missing.")?;
-    pad.show().map_err(|error| error.to_string())?;
+    let pad = tool_window(app, "test-pad").await?;
     {
         let mut state = state.lock().unwrap();
         state.test_pad.open = true;
         state.pad_code = Some(code.clone());
+    }
+    if let Err(error) = pad.show() {
+        let _ = pad.destroy();
+        clear_test_pad(app);
+        return Err(error.to_string());
     }
     let _ = app.emit_to(
         EventTarget::webview_window("test-pad"),
@@ -577,28 +610,23 @@ fn test_pad_input(window: WebviewWindow, input: Option<PadInput>) -> Result<(), 
     Ok(())
 }
 
-fn hide_test_pad(window: &WebviewWindow) -> Result<(), String> {
-    window.hide().map_err(|error| error.to_string())?;
+fn clear_test_pad(app: &AppHandle) {
     {
-        let capture = window.state::<Capture>();
+        let capture = app.state::<Capture>();
         let mut state = capture.lock().unwrap();
+        if !state.test_pad.open {
+            return;
+        }
         state.test_pad.close();
         state.pad_code = None;
     }
-    let app = window.app_handle();
-    let _ = app.emit_to(
-        EventTarget::webview_window("test-pad"),
-        "test-session",
-        Option::<String>::None,
-    );
     let _ = app.emit_to(EventTarget::webview_window("panel"), "test-pad-closed", ());
-    Ok(())
 }
 
 #[tauri::command]
 fn close_test_pad(window: WebviewWindow) -> Result<(), String> {
     require_test_pad(&window)?;
-    hide_test_pad(&window)
+    window.destroy().map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -866,6 +894,7 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updates::Service::default())
         .manage(Capture::default())
+        .manage(ToolCreation::default())
         .manage(fullscreen::Service::default())
         .manage(click_sender)
         .setup(move |app| {
@@ -877,25 +906,38 @@ fn main() {
                 .spawn(move || watch_pointer(handle, clicks))?;
             Ok(())
         })
+        .on_page_load(|view, load| {
+            if view.label() == "panel"
+                && matches!(load.event(), tauri::webview::PageLoadEvent::Started)
+            {
+                // A reloaded panel has lost the countdown and private test session that own these tools.
+                for label in ["pick-marker", "picker", "test-pad"] {
+                    if let Some(tool) = view.app_handle().get_webview_window(label) {
+                        let _ = tool.destroy();
+                    }
+                }
+            }
+        })
         .on_window_event(|window, event| {
             if window.label() == "panel" && matches!(event, tauri::WindowEvent::Destroyed) {
                 window.state::<fullscreen::Service>().stop();
                 window.app_handle().exit(0);
             }
-            if let ("picker", tauri::WindowEvent::CloseRequested { api, .. }) =
-                (window.label(), event)
-            {
-                api.prevent_close();
-                if let Some(picker) = window.app_handle().get_webview_window("picker") {
-                    let _ = settle_drag(&picker, None);
-                }
-            }
-            if let ("test-pad", tauri::WindowEvent::CloseRequested { api, .. }) =
-                (window.label(), event)
-            {
-                api.prevent_close();
-                if let Some(pad) = window.app_handle().get_webview_window("test-pad") {
-                    let _ = hide_test_pad(&pad);
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                match window.label() {
+                    "picker" => {
+                        let _ = settle_drag(window.app_handle());
+                    }
+                    "pick-marker" => {
+                        window.state::<Capture>().lock().unwrap().pick_displays = None;
+                        let _ = window.app_handle().emit_to(
+                            EventTarget::webview_window("overlay"),
+                            "pick-count",
+                            Option::<u8>::None,
+                        );
+                    }
+                    "test-pad" => clear_test_pad(window.app_handle()),
+                    _ => {}
                 }
             }
         })

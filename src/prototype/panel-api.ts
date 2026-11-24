@@ -156,7 +156,7 @@ export function createPanelApi(
           change,
           restoredWindow ? true : settling && !sameBounds(change.area, baseline) ? false : undefined
         )
-        if (!change.tracking) setMarking(false)
+        if (settling) setMarking(false)
       })
       return () => {
         stop()
@@ -212,7 +212,7 @@ export function createPanelApi(
       } catch (error) {
         report(String(error))
       } finally {
-        void invoke('set_pick_count', { count: null }).catch(console.error)
+        await invoke('set_pick_count', { count: null }).catch(console.error)
         setMarking(false)
       }
     },
@@ -221,11 +221,13 @@ export function createPanelApi(
       if (!selected || !controls.desktopAreas || marking) return
       setMarking(true)
       report(null)
+      dragBaseline = currentArea
+      dragOpen = true
       try {
         await invoke('begin_drag', { bounds: selected.bounds })
-        dragBaseline = currentArea
-        dragOpen = true
       } catch (error) {
+        dragOpen = false
+        dragBaseline = null
         report(String(error))
         setMarking(false)
       }
