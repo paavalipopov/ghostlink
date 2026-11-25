@@ -2,7 +2,7 @@
 
 Ghostlink 0.9 runs on Windows x64 with Tauri, Rust and WebView2. Its fullscreen helper is bundled; a separate Magpie installation is not needed. Download the installer from [GitHub Releases](https://github.com/paavalipopov/ghostlink/releases/latest).
 
-The published 0.9.0 installer has known room-access and traffic-limit issues. On that version, fully quit and reopen Ghostlink before generating a replacement secret. The development build closes the old room on disconnect and limits network traffic. Both people need the updated build to connect. [Security review and fix status](docs/security-review-0.9.0.md)
+Update both computers to 0.9.1 to connect. This version closes the old room on disconnect, verifies the current secret for each new connection, and limits incoming traffic. [Security review and fix status](docs/security-review-0.9.0.md)
 
 <img src="docs/logo.png" alt="Ghostlink" width="96">
 

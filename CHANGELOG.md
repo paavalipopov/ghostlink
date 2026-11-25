@@ -1,3 +1,11 @@
+# 0.9.1
+
+- Test Trackpad, Frame Picker and the window-pick marker now release their WebViews when closed.
+- Disconnect closes the old room. New connections verify the current secret, and private test runs use a separate room.
+- Connection and message limits bound incoming pointer traffic.
+- Update signing runs separately from the build and uses the existing verification key.
+- Both peers must update to 0.9.1 to connect.
+
 # 0.9.0
 
 - Bundled Magpie-based Windows fullscreen with Alt+Shift+A, safe exit and lifecycle cleanup.
