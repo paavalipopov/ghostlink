@@ -6,6 +6,11 @@ Magpie v0.13.0: Copyright Blinue and Magpie contributors; GPL-3.0-or-later.
 Source commit 1a6f6c60cbd448b0e303e704f1225f0a4f3254ce.
 The source snapshot preserves upstream copyright notices and effect attribution.
 
+The build uses the vendored kuba-zip 0.3.2 archive in `native/fullscreen-host/conan/kuba-zip/`.
+It contains upstream commit `9a2b1d875be5d3822b85822fbcedde49473eba34`. All 31 files
+match the source shipped in Ghostlink 0.9.0. The ConanCenter recipe is adapted from
+revision `ba1b74a465ed339e1a309840b21d7f36` and retains its MIT license.
+
 Build dependencies are pinned in conan.lock and Magpie.Core/packages.config:
 fmt 12.1.0 (MIT), spdlog 1.17.0 (MIT), parallel-hashmap 2.0.0 (Apache-2.0,
 with upstream notices), RapidJSON cci.20230929 (MIT and upstream notices),

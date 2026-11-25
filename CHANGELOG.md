@@ -1,10 +1,11 @@
-# 0.9.1
+# 0.9.2
 
 - Test Trackpad, Frame Picker and the window-pick marker now release their WebViews when closed.
 - Disconnect closes the old room. New connections verify the current secret, and private test runs use a separate room.
 - Connection and message limits bound incoming pointer traffic.
 - Update signing runs separately from the build and uses the existing verification key.
-- Both peers must update to 0.9.1 to connect.
+- Both peers must update to 0.9.2 to connect.
+- The fullscreen helper builds from a checked-in copy of the verified kuba-zip source.
 
 # 0.9.0
 

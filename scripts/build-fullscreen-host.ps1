@@ -33,6 +33,8 @@ $env:CONAN_HOME = Join-Path $root 'out/conan'
 $env:PATH = (Join-Path $tools 'python/Scripts') + ';' + $env:PATH
 $deps = "$magpie/obj/x64/Release/_ConanDeps/Magpie"
 if ($Restore -or $BuildDependenciesFromSource -or !(Test-Path "$deps/conandeps.props")) {
+  & $conan export native/fullscreen-host/conan/kuba-zip
+  if ($LASTEXITCODE) { throw 'Could not export the pinned kuba-zip source recipe.' }
   $buildArgs = @('--build=missing')
   if ($BuildDependenciesFromSource) {
     # A release must retain preferred source, even if Conan has a prebuilt library.

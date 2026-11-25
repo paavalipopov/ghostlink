@@ -1,6 +1,6 @@
 {
   "name": "ghostlink",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "A ghost pointer shared between two copies of a game, with an optional click ping.",
   "main": "./out/main/index.js",
   "author": "Ghostlink",
